@@ -1,6 +1,17 @@
-# Ogma — Project Plan
+# Verdandi Writer — Project Plan
 
-Ogma is a desktop writing workspace with three parts: a Markdown editor that renders as you type (like Typora), documents that are one Markdown file each, split into sections by their `#` headings, with each section's **notes** kept inline beside its **output** (the text itself), and lexical and AI tools that work on the text you have selected.
+Verdandi Writer (repo and app name today: Ogma) is a writing workspace with three parts: a Markdown editor that renders as you type (like Typora), documents that are one Markdown file each, split into sections by their `#` headings, with each section's **notes** kept inline beside its **output** (the text itself), and lexical and AI tools that work on the text you have selected.
+
+It is one of the three Norn apps (see *The Norn Apps: Feature Boundaries*, Nov 12, 2026). **Verdandi is where you write.** Urdr Reader is where you read, and Skuldr Social is where you publish and talk with people. Verdandi receives material from Urdr and sends finished work to Skuldr; it doesn't copy either. It started on Windows desktop and grows to macOS, Linux, web and mobile (Phase 7).
+
+| Verdandi owns | Others |
+|---|---|
+| Writing, notes, drafts, version history | Urdr sends highlights and quotes in; nothing else edits |
+| Dictionary and vocabulary (Wiktionary) | Urdr has a quick definition lookup only |
+| AI drafting, analysis, chat and agent | None |
+| Git sync of documents | None |
+| | **Urdr:** all reading, including research reading. No browser or feed panel here |
+| | **Skuldr:** posting and the personal site. Verdandi never posts directly |
 
 ---
 
@@ -208,7 +219,7 @@ Uses Node's built-in `node:sqlite` (no native module) over ogma's `wiktionary.db
   - **Define:** senses, examples, IPA and part of speech.
   - **Etymology:** the etymology text, with root words you can click to look up.
   - **Thesaurus:** synonyms, antonyms, related and derived terms. Clicking a term looks it up, and Alt+click replaces your selection with it.
-  - **External:** Aisling's lookup-URL table (etymonline, rhymezone, M-W) opened in a panel or the browser.
+  - **External:** Aisling's lookup-URL table (etymonline, rhymezone, M-W) opened in the system browser. Not in an in-app panel: Verdandi has no built-in browser.
 - Hover definition (from ogma's `dictionaryHover.ts`) and a Ctrl+D shortcut to open the drawer.
 - **Lexicon:** a "Save word" action stores the word, definition, tags, your own note, and the sentence and section it came from. There is a lexicon browser with Aisling-style prefix search (`tag:`, `syn:`), and an importer for Aisling's `Vocabulary/*.json`.
 - Optional: underline words in the text that are already in your lexicon.
@@ -231,7 +242,7 @@ Tested end to end against a local mock of an OpenAI-compatible server (no API ke
 - Prompt templates are editable `.md` files (the same idea as ogma's `guidance.json`), and each run is logged to the history.
 
 ### Phase 5 — Polish & later ✅ done 2026-09-25 (except embeddings)
-Shipped: search across all roots (SQLite FTS5 index, Ctrl+Shift+F), keyword-based "related notes", export to PDF/HTML/Markdown, per-file version history (automatic every 10 minutes while editing, plus labelled snapshots, diff and restore), and writing statistics (per-section counts, output goal, net words per day). Not done: DOCX export, embedding-based related notes (needs the PyTorch stack), git-backed history.
+Shipped: search across all roots (SQLite FTS5 index, Ctrl+Shift+F), keyword-based "related notes", export to PDF/HTML/Markdown, per-file version history (automatic every 10 minutes while editing, plus labelled snapshots, diff and restore), and writing statistics (per-section counts, output goal, net words per day). Not done: DOCX export, embedding-based related notes (needs the PyTorch stack), git-backed history (now part of Git sync, Phase 7).
 - Global search across all roots (ripgrep or SQLite FTS).
 - Export a whole document as the output files joined into one `.md`, HTML, PDF or DOCX.
 - Version snapshots for each section (git per root, or the backup store).
@@ -240,6 +251,30 @@ Shipped: search across all roots (SQLite FTS5 index, Ctrl+Shift+F), keyword-base
 
 **Deferred (not planned for now):**
 - LM Studio / Bionic integration. Its models could be used through `openai_compat` with no new code. An Ogma MCP server that lets Bionic or Claude work on the workspace (with edits as reviewable proposals) could be revisited later.
+
+### Phase 6 — Norn handoffs
+Each handoff is a one-way send by file, deep link or URL, never shared in-app state, so Verdandi still works installed alone.
+- **Import from Urdr:** highlights, notes and quotes land in a section's notes block, each with a source link. Two ways in: a Markdown file Urdr exports (drop it on a section, or "Import highlights…"), and a `verdandi://import?…` deep link registered by the desktop app. The format is agreed with Urdr:
+  ```markdown
+  > The quoted text.
+
+  — *Book or article title*, Author · [source](https://…) · chapter or section
+  Your note, if any.
+  ```
+- **Word lookups from Urdr:** `verdandi://word/<word>` opens the Words panel on that word.
+- **Publish to Skuldr:** a "Publish…" action sends the document's output (notes left out) to Skuldr as a page or story **draft**. You review and publish it in Skuldr, so identity and the site stay there. Waits until Skuldr's page record is stable. Skuldr's page format is structured rich text, so the conversion from Markdown lives in the shared lexicons package, not here.
+- **Share a passage:** opens Skuldr's share URL with the selection prefilled.
+- **Done when:** a highlight from Urdr ends up in the right section's notes with its source, and a finished document arrives in Skuldr as a draft page.
+
+### Phase 7 — Platforms and Git sync
+Desktop stays the full app; web and mobile are a lighter editor over the same files.
+- **Shared editor package:** pull the React editor (CodeMirror extensions, document model, views, the Words panel UI) out of `app/src/renderer` into a package with no Electron imports. Desktop adds direct file access and the AI sidecar; web and mobile get the editor alone.
+- **Git sync:** documents are already plain Markdown files, so a workspace root that is a Git repo (for example a private GitHub repo) syncs between devices. Desktop runs ordinary Git; web and mobile use isomorphic-git against the same remote. Commits double as the git-backed history from Phase 5. App-owned data in `<appData>` (metadata, AI history, snapshots) doesn't sync unless the root uses the "store metadata in folder" option.
+- **Desktop:** extend from Windows to macOS and Linux. Replace Windows-only pieces: DPAPI wording for keys (safeStorage works on all three), `.ps1` scripts, and the CUDA-only local model (add Apple Silicon or CPU fallback, or leave local AI Windows/Linux-only).
+- **Web:** the editor over Git sync, with cloud AI only.
+- **Mobile (Capacitor):** reading and editing, search, the dictionary and Git sync, with cloud AI or your desktop's model. Keyboard shortcuts work with a plugged-in keyboard.
+- **Dictionary on mobile and web:** the built `wiktionary.db` is about 1 GB, too big to bundle. Ship a common-words subset or look words up from a hosted copy.
+- **Signing:** Windows code signing, macOS notarization, Apple and Google developer accounts.
 
 ---
 
@@ -250,6 +285,13 @@ Shipped: search across all roots (SQLite FTS5 index, Ctrl+Shift+F), keyword-base
 - AI runs through a provider abstraction: a local model (ogma-style transformers/bitsandbytes), plus Claude, OpenAI, Gemini and any OpenAI-compatible host. The modes are Local, Cloud and Hybrid.
 - LM Studio / Bionic is deferred.
 - A workspace is a set of external folders edited in place, with no copying.
-- The code lives in this `ogma/` folder. The scope is the features listed here and nothing more.
+- The code lives in this repo. The scope is the features listed here and nothing more.
 
 - A document is one Markdown file: `#` headings make the sections and notes are inline (§3). This settles the earlier open questions about reordering sections and naming output files.
+
+- Verdandi's place among the Norn apps (2026-11-13): it receives reading material from Urdr and sends finished work to Skuldr (Phase 6). It does **not** get a built-in browser or feed panel, even a small one, and it does **not** post directly. Packages, app IDs and folders move to the name `verdandi` with the other repo renames.
+
+**Open questions:**
+- **AI on web and mobile:** the sidecar is a local Python process. Without it, cloud calls need either your API keys stored on the device (web storage is weaker than the OS keychain) or a small hosted relay. "Your desktop's model" on a phone needs the desktop sidecar reachable over the network, which today binds to 127.0.0.1 only.
+- **Publish transport:** does Verdandi call Skuldr's API (signing in to your Skuldr instance), or open Skuldr with the draft attached? Decided with Skuldr.
+- **Renaming in code:** the `%APPDATA%\Ogma` profile, `OGMA_*` environment variables and `.ogma/` metadata folders. Rename with a migration, or keep them as internal names?

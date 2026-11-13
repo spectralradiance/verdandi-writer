@@ -1,6 +1,8 @@
-# Ogma
+# Verdandi Writer (Ogma)
 
-A Markdown editor for writing, vocabulary and linguistic research. See [PLAN.md](PLAN.md) for the design and roadmap.
+A Markdown editor for writing, vocabulary and linguistic research. The app still calls itself Ogma; the rename to Verdandi is planned. See [PLAN.md](PLAN.md) for the design and roadmap.
+
+Verdandi is one of three Norn apps: **Urdr Reader** is for reading (highlights from it land in your notes) and **Skuldr Social** for publishing (finished drafts go there as pages or stories).
 
 - `app/`: Electron + React + TypeScript desktop app
 - `sidecar/`: Python FastAPI server for AI and GPU work, launched by the app
