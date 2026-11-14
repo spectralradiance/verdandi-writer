@@ -148,6 +148,104 @@ The lexicon and prompt templates live in the folders named in the workspace file
 
 ---
 
+## 3b. Sections and layers (planned 2026-11-14, Phase 8)
+
+When Phase 8 is built, it replaces the one-file document format in §3. A document becomes a collection of sections, more like a CMS. Each section holds **layers**: its text, notes, outline, images, and any other layers the document defines. The files stay plain Markdown that Obsidian can open and edit; a workspace root can be an Obsidian vault.
+
+**Shape:** a vault (workspace root) → a document (a folder) → a section (one `.md` file) → layers (parts of that file).
+
+```
+Eras/
+  Eras.md                ← the document note: the layers and the order of the sections
+  The First Era.md
+  The Second Era.md
+  attachments/map.png
+  .verdandi/views.yaml   ← saved views (Obsidian hides dot-folders)
+```
+
+**The document note** declares the document's layers and lists its sections as embeds, in order. Opening it in Obsidian reads the whole document straight through, and reordering sections moves one line rather than renaming files.
+
+```markdown
+---
+verdandi: document
+layers:
+  - { name: notes, kind: prose, anchored: true }
+  - { name: outline, kind: list }
+  - { name: images, kind: gallery }
+---
+![[The First Era]]
+![[The Second Era]]
+```
+
+**A section file** is named after the section, which is Obsidian's convention for titles. Its frontmatter holds the section's fields and a stable `id`. Its body is the text layer, and the other layers are callouts:
+
+```markdown
+---
+id: 7f3a
+status: draft
+tags: [act-1]
+---
+The text of the section…
+
+> [!notes]
+> A note on the paragraph above.
+
+More text.
+
+> [!outline]-
+> - first beat
+> - second beat
+```
+
+- **Anchored layers** (`anchored: true`, such as notes) sit right after the paragraph they belong to, as notes blocks do today. Other layers go at the end of the file. The `-` after a callout type makes it collapsed in Obsidian.
+- **Frontmatter fields** (status, tags, POV and so on) are what saved views filter on. Obsidian's Bases can show the same sections as a table.
+- **The `id`** lets Verdandi find a section again if its embed link goes stale. Obsidian updates embeds when a file is renamed inside it.
+- **The exact title** goes in frontmatter when it can't be a filename, for example when it contains `:` `?` or `/`. The filename is cleaned up, and two sections with the same name get "Name 2".
+- **Images** go in the document's `attachments/` folder and are embedded with `![[map.png]]`.
+
+**Layer types belong to the document, so every section has the same layers.**
+- **Kinds:** each layer has a kind — prose, list or gallery — which decides how it is edited and shown.
+- **Empty layers aren't written:** a section with no outline has no outline callout, but the app still shows the layer.
+- **Adding** a layer gives every section an empty one.
+- **Renaming** a layer rewrites that callout in every section file.
+- **Deleting** a layer that still has content asks first and takes a History snapshot.
+- **Only declared layers count:** a callout is a layer only when its type is declared, so ordinary Obsidian callouts like `[!warning]` stay plain text. If a callout with a new type turns up, for example added in Obsidian, Verdandi leaves it as text and offers to add it as a layer.
+
+**Splitting and merging:**
+- **Split:** the layer you split from moves into the new section, and every other layer stays with the original. The new section starts with those layers blank. A split can start from any layer: making a section from notes selected in the notes view gives the new section those notes and blank text.
+- **Anchored layers travel with their paragraph:** notes tied to a paragraph inside the selection move with it.
+- **Text after the selection** continues as "Name (continued)", as it does now, also with blank layers. Nothing is copied, so nothing drifts apart.
+- **Merge** is the inverse of split: each layer is joined onto the matching layer of the section above, and a heading becomes a subheading.
+- **Move to section…** (later) moves one outline item, image or note to another section, for whatever a split leaves in the wrong place.
+- **History:** a split or merge touches several files, so every file involved is snapshotted first, as delete does today.
+
+**Views:**
+- **A layer across the whole document:**
+  - Notes read like today's notes-primary view.
+  - Images show as a gallery grouped by section.
+  - The outline is one combined outline, where dragging a section reorders the document.
+- **One section:** all its layers on one page, as panels.
+- **Controls:** collapse or hide sections, show or hide layers, choose the primary layer, and lay layers out side by side or stacked.
+- **Saved views** are named and stored in `.verdandi/views.yaml`, so they travel with the document. A view records:
+  - a scope: the whole document, one section, or a filter on fields such as `tags: act-1` or `status: draft`
+  - which sections are shown, collapsed or hidden
+  - which layers show, their order, the primary layer and the layout
+- **Local view state** (scroll position, what is collapsed right now) stays in the app's preferences, not the vault.
+
+**Converting single-file documents:**
+- **Which files convert:** a file opened from the sidebar converts as soon as it opens if it already looks like a Verdandi document, meaning it has `::: notes` blocks or `<!-- section: -->` markers.
+- **Other Markdown files** open read-only with a "Make this a document" button, so opening an ordinary Obsidian note to read it never changes it.
+- **How a file is split:**
+  - Each heading that starts a section today, and each section marker, becomes a section file.
+  - Text before the first heading becomes "Introduction".
+  - `::: notes` blocks become `> [!notes]` callouts, so the document starts with one declared layer, notes.
+- **The original file** is kept in the new folder's `.verdandi/`, and a notice offers to undo the conversion.
+- **Exports** still compile the whole document into one file, in the order the document note gives.
+
+**Risk:** Obsidian, or a sync tool, editing section files while Verdandi has them open. One file per section keeps a conflict to one section, but the watcher and merge prompt (§3) have to work across a document's folder from the start.
+
+---
+
 ## 3a. Repository layout (this `verdandi-writer/` folder)
 
 ```
@@ -276,6 +374,24 @@ Desktop stays the full app; web and mobile are a lighter editor over the same fi
 - **Dictionary on mobile and web:** the built `wiktionary.db` is about 1 GB, too big to bundle. Ship a common-words subset or look words up from a hosted copy.
 - **Signing:** Windows code signing, macOS notarization, Apple and Google developer accounts.
 
+### Phase 8 — Sections and layers
+Builds the format in §3b. Unlike the folder-of-sections format removed in Phase 2c, which split each section into a notes file and an output file, each section is one file holding all of its layers.
+1. **Model:**
+   - Parse and write a section file: frontmatter, the text layer, anchored callouts and end callouts. Round-trip tests come first, against files edited by hand and in Obsidian.
+   - Parse and write the document note: its layers and its embeds.
+   - The projection model in `sectionModel.ts` carries over, with callouts in place of `::: notes` blocks.
+2. **Conversion:**
+   - Detect old-format files and convert them on open, keeping the original in `.verdandi/` with an undo.
+   - Open other Markdown files read-only, with "Make this a document".
+3. **Document operations across files:** add, rename, move, split, merge and delete sections, with every file involved snapshotted in History first. Also add, rename and delete layers.
+4. **Views:**
+   - The rows view generalised to any set of layers.
+   - The layer-across-document views: notes, gallery and outline.
+   - The one-section page.
+   - Saved views in `.verdandi/views.yaml`, with field filters.
+5. **Everything that reads documents:** search, stats, export, AI drafting (which reads a section's layers) and the Urdr import (which lands in the notes layer) move to the new format. So does the folder watcher.
+- **Done when:** an old one-file document opens as a folder of sections that Obsidian reads straight through. A section split or merged in Verdandi, or edited in Obsidian, keeps every layer where it belongs. A saved view filtered on `status: draft` reopens as it was left.
+
 ---
 
 ## 5. Decisions
@@ -290,6 +406,8 @@ Desktop stays the full app; web and mobile are a lighter editor over the same fi
 - A document is one Markdown file: `#` headings make the sections and notes are inline (§3). This settles the earlier open questions about reordering sections and naming output files.
 
 - Verdandi's place among the Norn apps (2026-11-13): it receives reading material from Urdr and sends finished work to Skuldr (Phase 6). It does **not** get a built-in browser or feed panel, even a small one, and it does **not** post directly. Packages, app IDs and folders use the name Verdandi (renamed 2026-11-14). The old `%APPDATA%\Ogma` profile moves to `%APPDATA%\Verdandi Writer` on first launch.
+
+- Sections and layers (2026-11-14, Phase 8): a document becomes a folder of section files that Obsidian can open, and each section holds the layers the document declares (§3b). This replaces the one-file decision above once Phase 8 is built. A split moves only the layer it was made from (and the anchored notes inside it), and leaves the others with the original. Old one-file documents convert when opened; other Markdown files are never changed unless asked.
 
 **Open questions:**
 - **AI on web and mobile:** the sidecar is a local Python process. Without it, cloud calls need either your API keys stored on the device (web storage is weaker than the OS keychain) or a small hosted relay. "Your desktop's model" on a phone needs the desktop sidecar reachable over the network, which today binds to 127.0.0.1 only.
