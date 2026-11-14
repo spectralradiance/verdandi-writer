@@ -2,7 +2,7 @@ import { ChangeSet, Text } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 
 import {
-  applyChange, changedRun, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition, project,
+  applyChange, changedRun, continuedName, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition, project,
   type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble, splitSection,
   toSectionOffset,
 } from './sectionModel'
@@ -48,6 +48,23 @@ describe('named sections', () => {
     const split = splitSection('# A\nOne.\n\nTwo.\n', 0, 3, 'B')!
     expect(split).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n')
     expect(partition(split).map((section) => [section.title, section.named])).toEqual([['A', false], ['B', true]])
+  })
+
+  it('never leaves a section with only its heading', () => {
+    expect(splitSection('# A\nOne.\nTwo.', 0, 1, 'B')).toBeNull()
+    expect(splitSection('# A\n\nOne.\nTwo.', 0, 2, 'B')).toBeNull()
+    expect(splitSection('# A\nOne.\nTwo.', 0, 2, 'B')).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.')
+    expect(splitSection('Intro.\nMore.', 0, 1, 'B')).toBe('Intro.\n\n<!-- section: B -->\nMore.')
+  })
+
+  it('makes a selection its own section and continues the rest under the old name', () => {
+    const source = '# A\nOne.\nTwo.\n\n::: notes\nn\n:::\nThree.\nFour.'
+    const split = splitSection(source, 0, 2, 'B', { line: 7, name: continuedName('A') })!
+    expect(split).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n\n::: notes\nn\n:::\n\n<!-- section: A (continued) -->\nThree.\nFour.')
+    expect(partition(split).map((section) => section.title)).toEqual(['A', 'B', 'A (continued)'])
+    // A selection that runs to the end of the section needs no continuation.
+    expect(splitSection('# A\nOne.\nTwo.\n', 0, 2, 'B', { line: 3, name: 'C' })).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n')
+    expect(continuedName('A (continued)')).toBe('A (continued)')
   })
 })
 
