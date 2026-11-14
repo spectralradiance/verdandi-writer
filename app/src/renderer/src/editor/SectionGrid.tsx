@@ -1,23 +1,29 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
-import { EyeOff, PanelRightOpen } from 'lucide-react'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Ellipsis, EyeOff, PanelRightOpen } from 'lucide-react'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 
 import { suggestEdits } from '../../../shared/diff'
+import { DropdownMenu, type MenuItem } from '../menu'
 import { readPref, writePref } from '../prefs'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
 import {
-  applyChange, type CellKind, changedRun, fromSectionOffset, joinSections, partition, project, type Projection, sectionText,
-  sectionTitle, shownLineNumbers, showsPreamble, toSectionOffset,
+  applyChange, type CellKind, changedRun, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition,
+  project, type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble,
+  splitSection, toSectionOffset,
 } from './sectionModel'
 
 /**
  * The document as rows, one per section. Each row has a primary side (left, or on
  * top when narrow), as tall as its text unless the writer drags the row taller or
  * shorter, and a secondary side (right, or below) that fits in beside it and
- * scrolls. The output view puts the text first and the notes second; the notes
+ * scrolls. The text view puts the text first and the notes second; the notes
  * view the other way round. The secondary side can be hidden per section or for
  * the whole document.
+ *
+ * A section starts at a heading, or at a `<!-- section: Name -->` marker for one
+ * that has a name but no heading. Each row has a menu to rename, move, merge or
+ * delete its section, and to switch its name between a heading and a name only.
  *
  * Every side is its own small editor over a projection of its section (see
  * sectionModel), and the file is the sections joined back together.
@@ -28,6 +34,7 @@ interface Row {
   /** The section text: the file's lines for this section, joined with \n. */
   text: string
   title: string | null
+  named: boolean
   output: Projection
   notes: Projection
 }
@@ -35,6 +42,7 @@ interface Row {
 interface RowMeta {
   id: number
   title: string | null
+  named: boolean
 }
 
 export interface SectionGridProps {
@@ -57,15 +65,17 @@ export interface SectionGridProps {
 }
 
 const MIN_ROW_HEIGHT = 56
+const NEW_SECTION_NAME = 'New section'
 const other = (kind: CellKind): CellKind => (kind === 'output' ? 'notes' : 'output')
 const cellKey = (id: number, kind: CellKind) => `${id}:${kind}`
-/** Per-section settings are remembered by heading, so they survive reopening the file. */
+/** Per-section settings are remembered by name, so they survive reopening the file. */
 const rowKey = (title: string | null) => title ?? '\u0000before-first-heading'
+const metaOf = ({ id, title, named }: Row): RowMeta => ({ id, title, named })
 
 let nextRowId = 1
 
-function makeRow(text: string, title: string | null, id = nextRowId++): Row {
-  return { id, text, title, output: project(text, 'output'), notes: project(text, 'notes') }
+function makeRow(section: { text: string; title: string | null; named: boolean }, id = nextRowId++): Row {
+  return { id, text: section.text, title: section.title, named: section.named, output: project(section.text, 'output'), notes: project(section.text, 'notes') }
 }
 
 function readRecord<T>(key: string): Record<string, T> {
@@ -87,13 +97,14 @@ export function SectionGrid({
   // Built once; the model and the rendered rows both start from it.
   const [initial] = useState(() => {
     const sections = partition(initialText)
-    return { rows: sections.map((section) => makeRow(section.text, section.title)), preamble: showsPreamble(sections) }
+    return { rows: sections.map((section) => makeRow(section)), preamble: showsPreamble(sections) }
   })
   const rows = useRef<Row[]>(initial.rows)
   const [meta, setMeta] = useState<{ rows: RowMeta[]; preamble: boolean }>(() => ({
-    rows: initial.rows.map(({ id, title: rowTitle }) => ({ id, title: rowTitle })),
+    rows: initial.rows.map(metaOf),
     preamble: initial.preamble,
   }))
+  const [renaming, setRenaming] = useState<number | null>(null)
   const handles = useRef(new Map<string, MarkdownEditorHandle>())
   /** Work for an editor that is not mounted yet (a hidden side being shown). */
   const pending = useRef(new Map<string, (handle: MarkdownEditorHandle) => void>())
@@ -134,6 +145,16 @@ export function SectionGrid({
     })
   }, [visibilityKey])
 
+  const setRowHeight = useCallback((rowTitle: string | null, value: number | null) => {
+    setHeights((current) => {
+      const next = { ...current }
+      if (value === null) delete next[rowKey(rowTitle)]
+      else next[rowKey(rowTitle)] = value
+      writeRecord(heightsKey, next)
+      return next
+    })
+  }, [heightsKey])
+
   /** Runs `work` on a row's editor, first showing that side (or the hidden preamble row) if needed. */
   const withCell = useCallback((id: number, kind: CellKind, work: (handle: MarkdownEditorHandle) => void) => {
     const handle = handles.current.get(cellKey(id, kind))
@@ -142,7 +163,7 @@ export function SectionGrid({
       return
     }
     pending.current.set(cellKey(id, kind), work)
-    const row = rowById(id)
+    const row = rows.current.find((candidate) => candidate.id === id)
     if (!row) return
     if (kind !== primary) setRowShown(row.title, true)
     if (row === rows.current[0] && row.title === null) setMeta((current) => (current.preamble ? current : { ...current, preamble: true }))
@@ -162,8 +183,8 @@ export function SectionGrid({
       let reused: Row | undefined
       if (index < run.start) reused = before[index]
       else if (index >= run.endAfter) reused = before[index - run.endAfter + run.endBefore]
-      else if (index - run.start < run.endBefore - run.start) reused = before[index]
-      return makeRow(section.text, section.title, reused?.id)
+      else if (index < run.endBefore) reused = before[index]
+      return makeRow(section, reused?.id)
     })
     applying.current = true
     try {
@@ -179,11 +200,10 @@ export function SectionGrid({
       applying.current = false
     }
     rows.current = next
-    const changed = next.length !== before.length || next.some((row, index) => row.id !== before[index].id || row.title !== before[index].title)
+    const changed = next.length !== before.length
+      || next.some((row, index) => row.id !== before[index].id || row.title !== before[index].title || row.named !== before[index].named)
     const preamble = showsPreamble(sections)
-    setMeta((current) => (changed || current.preamble !== preamble
-      ? { rows: next.map(({ id, title: rowTitle }) => ({ id, title: rowTitle })), preamble }
-      : current))
+    setMeta((current) => (changed || current.preamble !== preamble ? { rows: next.map(metaOf), preamble } : current))
   }, [])
 
   const scheduleResync = useCallback(() => {
@@ -191,12 +211,20 @@ export function SectionGrid({
     resyncTimer.current = window.setTimeout(() => resync(getText()), 0)
   }, [resync, getText])
 
+  /** Applies a section operation's result to the whole document. */
+  const applyText = useCallback((next: string | null, undoable = false) => {
+    if (next === null || next === getText()) return false
+    resync(next, undoable)
+    parent.current.onDocChanged()
+    return true
+  }, [getText, resync])
+
   const onCellChanges = useCallback((id: number, kind: CellKind, changes: ChangeSet, text: string) => {
     if (applying.current) {
       parent.current.onDocChanged()
       return
     }
-    const row = rowById(id)
+    const row = rows.current.find((candidate) => candidate.id === id)
     if (!row) return
     row[kind] = applyChange(row[kind], text, changes)
     row.text = sectionText(row[kind])
@@ -205,7 +233,7 @@ export function SectionGrid({
     const fresh = project(row.text, otherKind)
     if (fresh.text !== row[otherKind].text) handles.current.get(cellKey(id, otherKind))?.sync(fresh.text)
     row[otherKind] = fresh
-    if (kind === 'output' && row.title !== null) {
+    if (kind === 'output' && row.title !== null && !row.named) {
       const heading = sectionTitle(row.text)
       if (heading !== null && heading !== row.title) {
         row.title = heading
@@ -244,6 +272,27 @@ export function SectionGrid({
     return true
   }, [shownRows])
 
+  /**
+   * Starts a named section at the paragraph the cursor is in (in a section's text),
+   * then asks for its name. False when the cursor is in the section's first paragraph.
+   */
+  const splitAtCursor = useCallback((id: number) => {
+    const index = rows.current.findIndex((row) => row.id === id)
+    const row = rows.current[index]
+    const handle = handles.current.get(cellKey(id, 'output'))
+    if (!row || !handle) return false
+    const lines = row.output.text.split('\n')
+    let line = row.output.text.slice(0, handle.cursor()).split('\n').length - 1
+    if (lines[line]?.trim() === '') return false
+    while (line > 0 && lines[line - 1].trim() !== '') line -= 1
+    if (line === 0) return false
+    const sectionLine = shownLineNumbers(row.output)[line]
+    if (!applyText(splitSection(getText(), index, sectionLine, NEW_SECTION_NAME))) return false
+    const created = rows.current[index + 1]
+    if (created) setRenaming(created.id)
+    return true
+  }, [applyText, getText])
+
   const keysFor = useCallback((id: number, kind: CellKind): KeyBinding[] => {
     const atEdge = (view: EditorView, forward: boolean) => {
       const range = view.state.selection.main
@@ -259,8 +308,9 @@ export function SectionGrid({
           return true
         },
       },
+      { key: 'Mod-Alt-s', run: () => kind === 'output' && splitAtCursor(id) },
     ]
-  }, [moveBetweenRows, withCell])
+  }, [moveBetweenRows, withCell, splitAtCursor])
 
   const activeHandle = () => {
     const current = active.current
@@ -343,9 +393,7 @@ export function SectionGrid({
     replaceWord: (replacement) => activeHandle()?.replaceWord(replacement) ?? false,
     getSelection: () => activeHandle()?.getSelection() ?? '',
     replaceAll: (text) => {
-      if (text === getText()) return
-      resync(text, true)
-      parent.current.onDocChanged()
+      applyText(text, true)
     },
     cursorLine: () => {
       const current = active.current
@@ -388,6 +436,73 @@ export function SectionGrid({
   }))
 
   const secondary = other(primary)
+  const sideName = { output: 'text', notes: 'notes' }
+
+  /** The section menu for row `index` of `meta.rows`. */
+  const menuFor = (index: number, shown: boolean, sized: boolean): MenuItem[] => {
+    const rowMeta = meta.rows[index]
+    const titled = rowMeta.title !== null
+    const previous = meta.rows[index - 1]
+    const nextRow = meta.rows[index + 1]
+    const firstTitled = meta.rows[0]?.title === null ? 1 : 0
+    const withText = (change: (text: string) => string | null, undoable = false) => () => applyText(change(getText()), undoable)
+    const items: MenuItem[] = []
+    if (titled) {
+      items.push(
+        { label: 'Rename section', onClick: () => setRenaming(rowMeta.id) },
+        {
+          label: 'Show name as a heading',
+          checked: !rowMeta.named,
+          title: 'A heading is part of the text (and of exports). Without one, the name only labels the section here.',
+          // Not undoable in the editor: undoing there would drop the heading line and the section with it.
+          onClick: withText((text) => setSectionHeading(text, index, rowMeta.named)),
+        },
+        'separator',
+        { label: 'Move up', disabled: index <= firstTitled, onClick: withText((text) => moveSection(text, index, -1)) },
+        { label: 'Move down', disabled: !nextRow, onClick: withText((text) => moveSection(text, index, 1)) },
+        {
+          label: `Merge into ${previous?.title ? `“${previous.title}”` : 'the text above'}`,
+          disabled: !previous || (previous.title === null && !meta.preamble),
+          title: rowMeta.named ? 'The name is removed' : 'The heading becomes a subheading',
+          onClick: withText((text) => mergeIntoPrevious(text, index)),
+        },
+      )
+    }
+    items.push({
+      label: nextRow ? `Merge “${nextRow.title}” into this` : 'Merge the next section into this',
+      disabled: !nextRow,
+      onClick: withText((text) => mergeIntoPrevious(text, index + 1)),
+    })
+    if (primary === 'output') {
+      const handle = handles.current.get(cellKey(rowMeta.id, 'output'))
+      items.push({
+        label: 'New section from this paragraph',
+        hint: 'Ctrl+Alt+S',
+        disabled: !handle || active.current?.id !== rowMeta.id || active.current.kind !== 'output',
+        title: 'Starts a named section at the paragraph the cursor is in',
+        onClick: () => {
+          if (!splitAtCursor(rowMeta.id)) window.alert('Put the cursor in a later paragraph of this section: the first one already starts it.')
+        },
+      })
+    }
+    items.push(
+      'separator',
+      { label: `${shown ? 'Hide' : 'Show'} the ${sideName[secondary]}`, onClick: () => setRowShown(rowMeta.title, !shown) },
+      { label: 'Fit height to the text', disabled: !sized, onClick: () => setRowHeight(rowMeta.title, null) },
+    )
+    if (titled) {
+      items.push('separator', {
+        label: 'Delete section…',
+        onClick: () => {
+          const text = getText()
+          if (!window.confirm(`Delete “${rowMeta.title}”, its text and its notes? An earlier version is kept in History.`)) return
+          void window.verdandi.history.snapshot(path, text, `Before deleting “${rowMeta.title}”`).catch(() => {})
+          applyText(deleteSection(text, index))
+        },
+      })
+    }
+    return items
+  }
 
   return (
     <div className={`section-grid primary-${primary}${secondaryShown ? '' : ' secondary-off'}`}>
@@ -396,24 +511,27 @@ export function SectionGrid({
         if (index === 0 && rowMeta.title === null && !meta.preamble) return null
         const key = rowKey(rowMeta.title)
         const shown = overrides[key] ?? secondaryShown
+        const height = shown ? heights[key] : undefined
         return (
           <SectionRow
             key={rowMeta.id}
             id={rowMeta.id}
             title={rowMeta.title}
+            named={rowMeta.named}
             primary={primary}
             secondary={secondary}
             shown={shown}
-            height={shown ? heights[key] : undefined}
+            height={height}
+            renaming={renaming === rowMeta.id}
+            menu={() => menuFor(index, shown, height !== undefined)}
+            onRename={(name) => {
+              setRenaming(null)
+              if (name !== null) applyText(renameSection(getText(), index, name), true)
+              withCell(rowMeta.id, 'output', (handle) => handle.focus())
+            }}
             initialText={(kind) => rowById(rowMeta.id)?.[kind].text ?? ''}
             onShow={(value) => setRowShown(rowMeta.title, value)}
-            onHeight={(value) => setHeights((current) => {
-              const next = { ...current }
-              if (value === null) delete next[key]
-              else next[key] = value
-              writeRecord(heightsKey, next)
-              return next
-            })}
+            onHeight={(value) => setRowHeight(rowMeta.title, value)}
             cell={(kind) => ({
               path,
               live,
@@ -485,13 +603,45 @@ function Cell({ id, kind, initialText, props }: { id: number; kind: CellKind; in
 
 const noop = () => {}
 
-function SectionRow({ id, title, primary, secondary, shown, height, initialText, onShow, onHeight, cell }: {
+/** The section's name, editable in place. */
+function NameInput({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(initial)
+  const done = useRef(false)
+  const finish = (name: string | null) => {
+    if (done.current) return
+    done.current = true
+    onDone(name)
+  }
+  return (
+    <input
+      className="section-name-input"
+      autoFocus
+      value={value}
+      aria-label="Section name"
+      onChange={(event) => setValue(event.target.value)}
+      onFocus={(event) => event.target.select()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') finish(value.trim() && value.trim() !== initial ? value : null)
+        if (event.key === 'Escape') finish(null)
+      }}
+      onBlur={() => finish(value.trim() && value.trim() !== initial ? value : null)}
+    />
+  )
+}
+
+function SectionRow({
+  id, title, named, primary, secondary, shown, height, renaming, menu, onRename, initialText, onShow, onHeight, cell,
+}: {
   id: number
   title: string | null
+  named: boolean
   primary: CellKind
   secondary: CellKind
   shown: boolean
   height: number | undefined
+  renaming: boolean
+  menu: () => MenuItem[]
+  onRename: (name: string | null) => void
   initialText: (kind: CellKind) => string
   onShow: (shown: boolean) => void
   onHeight: (height: number | null) => void
@@ -499,8 +649,9 @@ function SectionRow({ id, title, primary, secondary, shown, height, initialText,
 }) {
   const row = useRef<HTMLDivElement>(null)
   const primaryBody = useRef<HTMLDivElement>(null)
-  const sectionName = title ?? 'Before the first heading'
-  const kindName = useMemo(() => ({ output: 'Text', notes: 'Notes' }), [])
+  const [, setMenuOpen] = useState(0)
+  const sectionName = title ?? 'Before the first section'
+  const kindName = { output: 'Text', notes: 'Notes' }
 
   // How tall the primary side's text is, for the secondary side when the two are stacked.
   useLayoutEffect(() => {
@@ -538,17 +689,42 @@ function SectionRow({ id, title, primary, secondary, shown, height, initialText,
     handle.addEventListener('pointercancel', end)
   }
 
+  const menuButton = (
+    <DropdownMenu
+      items={menu()}
+      trigger={(
+        <button type="button" className="icon-button section-menu-button" aria-label={`Section menu for ${sectionName}`} title="Section menu"
+          onPointerDown={() => setMenuOpen((count) => count + 1)}>
+          <Ellipsis size={15} aria-hidden="true" />
+        </button>
+      )}
+    />
+  )
+
+  // A heading in the text already names the section there; otherwise the name gets a line of its own.
+  const nameLine = renaming || primary === 'notes' || named
   const style = height ? ({ '--row-height': `${height}px` } as CSSProperties) : undefined
 
   return (
     <div
       ref={row}
-      className={`section-row${shown ? '' : ' secondary-hidden'}${height ? ' sized' : ''}${title === null ? ' section-preamble' : ''}`}
+      className={`section-row${shown ? '' : ' secondary-hidden'}${height ? ' sized' : ''}${title === null ? ' section-preamble' : ''}${nameLine ? ' has-name-line' : ''}`}
       style={style}
       data-section={sectionName}
     >
+      {nameLine && (
+        <div className={`section-name-line${named ? ' named' : ''}`}>
+          {renaming && title !== null ? (
+            <NameInput initial={title} onDone={onRename} />
+          ) : (
+            <h2 className="section-name" title={named ? 'Section name (not a heading in the text)' : 'Section heading'}>{sectionName}</h2>
+          )}
+          <span className="section-name-rule" aria-hidden="true" />
+          {menuButton}
+        </div>
+      )}
       <div className="section-cell section-primary">
-        {primary === 'notes' && <div className="cell-caption cell-caption-title">{sectionName}</div>}
+        {!nameLine && <div className="section-menu-float">{menuButton}</div>}
         <div className="cell-body" ref={primaryBody}>
           <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
         </div>

@@ -7,6 +7,7 @@ import { marked } from 'marked'
 import { demoteHeadings, splitSections } from '../shared/document'
 import type { ExportOptions } from '../shared/ipc'
 import { stripNotes } from '../shared/notes'
+import { stripSectionMarkers } from '../shared/text'
 import { DEFAULT_PREFERENCES, type ExportPreferences } from '../shared/preferences'
 
 export interface ExportedMarkdown {
@@ -26,7 +27,7 @@ export function exportMarkdown(text: string, title: string, options: Pick<Export
   const parts: string[] = options.includeTitle ? [`# ${title}`] : []
   const sections = splitSections(text)
   if (options.content === 'output') {
-    const output = stripNotes(text).trim()
+    const output = stripSectionMarkers(stripNotes(text)).trim()
     if (output) parts.push(options.includeTitle ? demoteHeadings(output, 2) : output)
     return { markdown: `${parts.join('\n\n')}\n`, sections: sections.filter((section) => section.output).length, skipped: [] }
   }

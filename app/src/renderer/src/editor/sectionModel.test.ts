@@ -2,9 +2,54 @@ import { ChangeSet, Text } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 
 import {
-  applyChange, changedRun, fromSectionOffset, joinSections, partition, project, type Projection, sectionText,
-  shownLineNumbers, showsPreamble, toSectionOffset,
+  applyChange, changedRun, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition, project,
+  type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble, splitSection,
+  toSectionOffset,
 } from './sectionModel'
+
+describe('named sections', () => {
+  const text = '# One\nFirst.\n\n<!-- section: Two -->\n\nSecond paragraph.\n\n::: notes\nn\n:::\n\n# Three\nThird.'
+
+  it('hides the marker and the blank lines after it from the text side', () => {
+    const sections = partition(text)
+    expect(sections.map((section) => [section.title, section.named])).toEqual([['One', false], ['Two', true], ['Three', false]])
+    const two = project(sections[1].text, 'output')
+    expect(two.text).toBe('Second paragraph.')
+    expect(sectionText(two)).toBe(sections[1].text)
+    expect(sectionTitle(sections[1].text)).toBe('Two')
+  })
+
+  it('renames a name or a heading', () => {
+    expect(renameSection(text, 1, 'Second')).toContain('<!-- section: Second -->')
+    expect(renameSection(text, 0, 'Uno')).toMatch(/^# Uno\n/)
+  })
+
+  it('switches between a heading and a name', () => {
+    const asHeading = setSectionHeading(text, 1, true)!
+    expect(asHeading).toContain('\n# Two\n')
+    expect(partition(asHeading).map((section) => section.named)).toEqual([false, false, false])
+    expect(setSectionHeading(asHeading, 1, false)).toBe(text)
+  })
+
+  it('merges a section into the previous one, keeping a heading as a subheading', () => {
+    expect(partition(mergeIntoPrevious(text, 1)!).map((section) => section.title)).toEqual(['One', 'Three'])
+    expect(mergeIntoPrevious(text, 1)).toContain('First.\n\nSecond paragraph.')
+    expect(mergeIntoPrevious(text, 2)).toContain('\n## Three\nThird.')
+    expect(mergeIntoPrevious(text, 0)).toBeNull()
+  })
+
+  it('deletes and moves sections', () => {
+    expect(partition(deleteSection(text, 1)!).map((section) => section.title)).toEqual(['One', 'Three'])
+    expect(partition(moveSection(text, 1, 1)!).map((section) => section.title)).toEqual(['One', 'Three', 'Two'])
+    expect(partition(moveSection(text, 1, -1)!).map((section) => section.title)).toEqual(['Two', 'One', 'Three'])
+  })
+
+  it('starts a named section at a paragraph', () => {
+    const split = splitSection('# A\nOne.\n\nTwo.\n', 0, 3, 'B')!
+    expect(split).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n')
+    expect(partition(split).map((section) => [section.title, section.named])).toEqual([['A', false], ['B', true]])
+  })
+})
 
 const doc = [
   'Intro text',

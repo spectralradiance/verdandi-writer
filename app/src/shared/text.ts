@@ -90,3 +90,51 @@ export function matchCase(original: string, replacement: string): string {
   }
   return replacement
 }
+
+/** `<!-- section: Name -->`: starts a section that has a name but no heading. */
+const SECTION_MARKER = /^[ \t]{0,3}<!--[ \t]*section:[ \t]*(.*?)[ \t]*-->[ \t]*$/i
+
+export interface SectionMarker {
+  name: string
+  /** 1-based line number. */
+  line: number
+}
+
+/** The name in a section marker line, or null if the line is not one. */
+export function parseSectionMarker(line: string): string | null {
+  const match = SECTION_MARKER.exec(line.replace(/\r$/, ''))
+  return match ? match[1] : null
+}
+
+/** The marker line for a section called `name` (an HTML comment, so it never shows in exports). */
+export function sectionMarkerLine(name: string): string {
+  return `<!-- section: ${name.replace(/\s+/g, ' ').replace(/--+/g, '–').trim()} -->`
+}
+
+/** Section markers outside fenced code blocks and notes blocks. */
+export function extractSectionMarkers(text: string): SectionMarker[] {
+  const markers: SectionMarker[] = []
+  let fence: string | null = null
+  const lines = text.split('\n')
+  const roles = classifyLines(lines)
+  lines.forEach((line, index) => {
+    if (roles[index] !== 'output') return
+    const fenceMatch = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (fenceMatch) {
+      if (fence === null) fence = fenceMatch[1][0]
+      else if (fenceMatch[1][0] === fence) fence = null
+      return
+    }
+    if (fence !== null) return
+    const name = parseSectionMarker(line)
+    if (name !== null) markers.push({ name, line: index + 1 })
+  })
+  return markers
+}
+
+/** Removes section marker lines (for exporting the text). */
+export function stripSectionMarkers(text: string): string {
+  const drop = new Set(extractSectionMarkers(text).map((marker) => marker.line - 1))
+  if (drop.size === 0) return text
+  return text.split('\n').filter((_, index) => !drop.has(index)).join('\n').replace(/\n{3,}/g, '\n\n')
+}

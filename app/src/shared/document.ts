@@ -2,20 +2,22 @@
 // hold notes (`::: notes` blocks, see notes.ts) alongside its output text.
 
 import { classifyLines, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from './notes'
-import { countWords, extractHeadings, type Heading } from './text'
+import { countWords, extractHeadings, extractSectionMarkers, type Heading } from './text'
 
 /** A section without its text, for outlines. */
-export type SectionSummary = Pick<DocSection, 'title' | 'level' | 'line' | 'endLine' | 'hasText' | 'outputWords' | 'notesWords' | 'headings'>
+export type SectionSummary = Pick<DocSection, 'title' | 'named' | 'level' | 'line' | 'endLine' | 'hasText' | 'outputWords' | 'notesWords' | 'headings'>
 
 export function summarizeSections(text: string): SectionSummary[] {
-  return splitSections(text).map(({ title, level, line, endLine, hasText, outputWords, notesWords, headings }) => (
-    { title, level, line, endLine, hasText, outputWords, notesWords, headings }
+  return splitSections(text).map(({ title, named, level, line, endLine, hasText, outputWords, notesWords, headings }) => (
+    { title, named, level, line, endLine, hasText, outputWords, notesWords, headings }
   ))
 }
 
 export interface DocSection {
-  /** The section heading, or null for text before the first heading. */
+  /** The section heading or name, or null for text before the first section. */
   title: string | null
+  /** The section starts at a `<!-- section: Name -->` marker: it has a name but no heading. */
+  named: boolean
   level: number
   /** 1-based line of the heading (0 for the text before the first heading). */
   line: number
@@ -44,16 +46,39 @@ export function sectionLevel(headings: readonly Heading[]): number {
 
 const joinLines = (lines: string[]) => lines.join('\n').replace(/^\n+|\s+$/g, '')
 
-/** Splits a document into sections at its headings. Headings inside notes never split. */
+/** Where sections start: section markers, and headings at the section level that do not sit right under a marker. */
+export function sectionStarts(text: string): { line: number; title: string; named: boolean }[] {
+  const lines = text.split('\n')
+  const headings = extractHeadings(text)
+  const level = sectionLevel(headings)
+  const markers = extractSectionMarkers(text)
+  const markerLines = new Set(markers.map((marker) => marker.line))
+  // A heading right under a marker (blank lines aside) belongs to the marker's section.
+  const underMarker = (line: number) => {
+    let index = line - 2
+    while (index >= 0 && lines[index].trim() === '') index -= 1
+    return markerLines.has(index + 1)
+  }
+  return [
+    ...markers.map((marker) => ({ line: marker.line, title: marker.name, named: true })),
+    ...headings.filter((heading) => heading.level === level && !underMarker(heading.line))
+      .map((heading) => ({ line: heading.line, title: heading.text, named: false })),
+  ].sort((a, b) => a.line - b.line)
+}
+
+/**
+ * Splits a document into sections at its headings and section markers. Headings
+ * and markers inside notes never split.
+ */
 export function splitSections(text: string): DocSection[] {
   const lines = text.split('\n')
   const roles = classifyLines(lines)
   const headings = extractHeadings(text)
   const level = sectionLevel(headings)
-  const starts = headings.filter((heading) => heading.level === level)
+  const starts = sectionStarts(text)
 
   const sections: DocSection[] = []
-  const build = (title: string | null, headingLine: number, from: number, to: number): DocSection => {
+  const build = (title: string | null, named: boolean, headingLine: number, from: number, to: number): DocSection => {
     const output: string[] = []
     const notes: string[] = []
     let blockGap = false
@@ -69,13 +94,14 @@ export function splitSections(text: string): DocSection[] {
     const notesText = joinLines(notes)
     return {
       title,
-      level: title === null ? level : (headings.find((heading) => heading.line === headingLine)?.level ?? level),
+      named,
+      level: title === null || named ? level : (headings.find((heading) => heading.line === headingLine)?.level ?? level),
       line: headingLine,
       endLine: to,
       output: outputText,
       notes: notesText,
       hasText: outputText.length > 0,
-      outputWords: countWords(outputText) + (title === null ? 0 : countWords(lines[headingLine - 1])),
+      outputWords: countWords(outputText) + (title === null || named ? 0 : countWords(lines[headingLine - 1])),
       notesWords: countWords(notesText),
       headings: headings.filter((heading) => heading.line > headingLine && heading.line <= to && heading.level > level),
     }
@@ -83,12 +109,12 @@ export function splitSections(text: string): DocSection[] {
 
   const firstLine = starts[0]?.line ?? lines.length + 1
   if (firstLine > 1) {
-    const preamble = build(null, 0, 0, firstLine - 1)
+    const preamble = build(null, false, 0, 0, firstLine - 1)
     if (preamble.output || preamble.notes || starts.length === 0) sections.push(preamble)
   }
-  starts.forEach((heading, index) => {
+  starts.forEach((start, index) => {
     const end = (starts[index + 1]?.line ?? lines.length + 1) - 1
-    sections.push(build(heading.text, heading.line, heading.line, end))
+    sections.push(build(start.title, start.named, start.line, start.line, end))
   })
   return sections
 }
