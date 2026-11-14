@@ -137,5 +137,7 @@ cd sidecar; .\.venv\Scripts\python.exe -m pytest -q
 ## License
 
 [GPL-3.0-or-later](LICENSE), for both the app and the sidecar. Forks and modified versions
-you distribute must also be released under the GPL. The Wiktionary data the app downloads
+you distribute must also be released under the GPL. An [additional permission](LICENSE-EXCEPTION)
+allows distribution through app stores such as Apple's, as long as the source stays freely
+available elsewhere. Contributions are accepted under the same terms. The Wiktionary data the app downloads
 keeps its own terms (CC BY-SA and GFDL).
