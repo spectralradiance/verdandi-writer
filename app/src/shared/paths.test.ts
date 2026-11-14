@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { dirname, joinPath, localFileUrl, pathFromLocalFileUrl, resolvePath, samePath } from './paths'
+import { dirname, isWithin, joinPath, localFileUrl, pathFromLocalFileUrl, resolvePath, samePath } from './paths'
 
 describe('dirname', () => {
   it('handles both separators', () => {
@@ -41,5 +41,14 @@ describe('joinPath and samePath', () => {
   it('compare Windows paths case-insensitively', () => {
     expect(samePath('C:\\Notes\\A.md', 'c:/notes/a.md')).toBe(true)
     expect(samePath('/notes/A.md', '/notes/a.md')).toBe(false)
+  })
+})
+
+describe('isWithin', () => {
+  it('matches the folder and anything below it, not siblings sharing a prefix', () => {
+    expect(isWithin('C:\\notes\\drafts\\a.md', 'C:\\Notes\\Drafts')).toBe(true)
+    expect(isWithin('C:\\notes\\drafts', 'C:\\notes\\drafts\\')).toBe(true)
+    expect(isWithin('C:\\notes\\drafts old\\a.md', 'C:\\notes\\drafts')).toBe(false)
+    expect(isWithin('/notes/a.md', '/notes/a')).toBe(false)
   })
 })

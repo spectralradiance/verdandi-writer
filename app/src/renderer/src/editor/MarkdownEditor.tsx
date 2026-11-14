@@ -9,6 +9,7 @@ import { type Ref, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef,
 import { isSingleWord, matchCase, sentenceAround, wordAt } from '../../../shared/text'
 import { toggleWrap } from './commands'
 import { dictionaryHover } from './dictionaryHover'
+import { documentTitle } from './documentTitle'
 import { focusMode as focusModeExtension } from './focusMode'
 import { documentPath, livePreview } from './livePreview'
 import { addOrJumpToNotes, notesBlocks, notesView as notesViewFacet, type NotesView, revealSelection, SHOW_NOTES_EVENT } from './notesBlocks'
@@ -60,6 +61,8 @@ interface MarkdownEditorProps {
   path: string
   initialText: string
   placeholder?: string
+  /** The document's title, shown above the text without being part of it. */
+  title?: string
   live: boolean
   focusMode: boolean
   /** Show the text alone, the notes alone, or both (see notesBlocks). */
@@ -81,11 +84,11 @@ const noop = () => {}
  * instead of receiving it on every keystroke, which keeps large notes fast.
  */
 export function MarkdownEditor({
-  ref, path, initialText, placeholder, live, focusMode, notesView = 'all', onShowNotes, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
+  ref, path, initialText, placeholder, title = '', live, focusMode, notesView = 'all', onShowNotes, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
 }: MarkdownEditorProps) {
   const container = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
-  const [compartments] = useState(() => ({ live: new Compartment(), focus: new Compartment(), notes: new Compartment() }))
+  const [compartments] = useState(() => ({ live: new Compartment(), focus: new Compartment(), notes: new Compartment(), title: new Compartment() }))
   const handleDocChanged = useEffectEvent(onDocChanged)
   const handleSave = useEffectEvent(onSave)
   const handleBlur = useEffectEvent(onBlur)
@@ -176,6 +179,7 @@ export function MarkdownEditor({
         compartments.live.of([]),
         compartments.focus.of([]),
         compartments.notes.of([]),
+        compartments.title.of([]),
         notesBlocks,
         suggestions,
         editorTheme,
@@ -220,6 +224,10 @@ export function MarkdownEditor({
   useLayoutEffect(() => {
     view.current?.dispatch({ effects: compartments.live.reconfigure(live ? livePreview : []) })
   }, [live, compartments, path, initialText])
+
+  useLayoutEffect(() => {
+    view.current?.dispatch({ effects: compartments.title.reconfigure(documentTitle(title)) })
+  }, [title, compartments, path, initialText])
 
   useLayoutEffect(() => {
     view.current?.dispatch({ effects: compartments.focus.reconfigure(focusMode ? focusModeExtension : []) })

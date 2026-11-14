@@ -201,3 +201,32 @@ export function demoteHeadings(text: string, minimum: number): string {
   }
   return lines.join('\n')
 }
+
+/**
+ * Moves the `from`th titled section (counting only sections that start with a heading,
+ * so any text before the first heading stays put) to the position of the `to`th,
+ * taking its notes and sub-headings with it. Returns null when nothing would change.
+ */
+export function moveSectionText(text: string, from: number, to: number): string | null {
+  const sections = splitSections(text).filter((section) => section.title !== null)
+  if (from === to || from < 0 || to < 0 || from >= sections.length || to >= sections.length) return null
+  const lines = text.split('\n')
+  const head = lines.slice(0, sections[0].line - 1)
+  const blocks = sections.map((section) => {
+    const body = lines.slice(section.line - 1, section.endLine)
+    let end = body.length
+    while (end > 1 && body[end - 1].trim() === '') end -= 1
+    return { body: body.slice(0, end), gap: body.length - end }
+  })
+  const lastGap = blocks[blocks.length - 1].gap
+  const [moved] = blocks.splice(from, 1)
+  blocks.splice(to, 0, moved)
+  const out = [...head]
+  blocks.forEach((block, index) => {
+    out.push(...block.body)
+    // Sections keep their own spacing, but never run into the next heading.
+    const gap = index === blocks.length - 1 ? lastGap : Math.max(1, block.gap)
+    for (let count = 0; count < gap; count += 1) out.push('')
+  })
+  return out.join('\n')
+}
