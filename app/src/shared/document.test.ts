@@ -4,7 +4,7 @@ import {
   demoteHeadings, planNotes, replaceSectionOutput, sectionAtLine, sectionLevel, splitSections, splitWordCounts, summarizeSections,
 } from './document'
 import { classifyLines, stripNotes } from './notes'
-import { extractHeadings } from './text'
+import { extractHeadings, parseSectionMarker, sectionMarkerLine, stripSectionMarkers } from './text'
 
 const SAMPLE = [
   'Before any section.',
@@ -111,8 +111,42 @@ describe('splitSections', () => {
 
   it('summarizes without the text', () => {
     expect(summarizeSections(SAMPLE)[1]).toEqual({
-      title: 'Stars', level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
+      title: 'Stars', named: false, level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
     })
+  })
+})
+
+describe('named sections', () => {
+  const text = [
+    '# Opening',
+    'First.',
+    '',
+    '<!-- section: The turn -->',
+    'A paragraph that starts a section without a heading.',
+    '',
+    '::: notes',
+    '<!-- section: not a section inside notes -->',
+    ':::',
+    '',
+    '<!-- section: Titled -->',
+    '',
+    '# Its heading',
+    'Text.',
+  ].join('\n')
+
+  it('starts sections at markers, outside notes, keeping a heading under a marker in its section', () => {
+    const sections = splitSections(text)
+    expect(sections.map((section) => [section.title, section.named, section.line])).toEqual([
+      ['Opening', false, 1], ['The turn', true, 4], ['Titled', true, 11],
+    ])
+    expect(sections[1].output).toBe('A paragraph that starts a section without a heading.')
+    expect(sections[1].outputWords).toBe(9)
+  })
+
+  it('leaves markers out of exported text', () => {
+    expect(stripSectionMarkers('a\n\n<!-- section: X -->\n\nb')).toBe('a\n\nb')
+    expect(parseSectionMarker('<!--section:  Two words -->')).toBe('Two words')
+    expect(sectionMarkerLine('a --> b')).toBe('<!-- section: a –> b -->')
   })
 })
 

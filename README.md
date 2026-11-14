@@ -47,6 +47,8 @@ Working notes, research and fragments for this section.
 :::
 ```
 
+A section can also have a name without a heading: a `<!-- section: The turn -->` line starts it. The name labels the row and the outline but is not part of the text, so exports leave it out. A heading right under such a line belongs to that section.
+
 The document is shown as rows, one per section, each with a **primary** side and a **secondary** side. The header switches between two views:
 
 - **Text view**: each section's text first, its notes beside it.
@@ -54,13 +56,15 @@ The document is shown as rows, one per section, each with a **primary** side and
 
 On a wide window the primary side is on the left and the secondary on the right; on a narrow one (a phone, or a window squeezed by the side panels) they stack, primary on top. A row is as tall as its primary text, and the secondary side scrolls within it. Drag a row's bottom edge to make it taller or shorter (both sides then scroll); double-click the edge to fit the text again. The secondary side can be hidden for one section (the eye icon on it, or the icon at the row's right edge to bring it back) or for the whole document (the columns button in the header, which also resets the per-section choices). Heights and per-section choices are remembered for each file.
 
+Each section has a **⋯ menu** (at the top right of the row): **Rename section**, **Show name as a heading** (switch between a heading in the text and a name only), **Move up** / **Move down**, **Merge into** the section above (its heading becomes a subheading; a name is dropped), **Merge the next section into this**, **New section from this paragraph**, hide or show the other side, fit the height to the text, and **Delete section…** (an earlier version is kept in History). To start a named section at any paragraph, put the cursor in it and press **Ctrl+Alt+S**, then type the name.
+
 Edits on either side go straight into the file: notes typed for a section without any start a `::: notes` block at its end, and existing blocks stay where they are in the text. A heading or notes markers typed into a side are sorted into rows when you leave it. **Ctrl+Alt+N** moves between a section's text and notes (showing the other side if it is hidden), and the arrow keys move on to the next or previous section at the end of one. Headings inside notes never start a section. Word counts keep notes apart (the status bar shows "N in notes"), exports leave notes out (or export only the notes), AI Analyze ignores them, and **Draft output from notes** drafts the section at the cursor from its notes.
 
 **New document** (folder right-click, or the + on a folder) makes one.
 
 ## Working in the sidebar
 
-The sidebar shows the workspace folders with their subfolders and documents. To reorder sections, move their text in the editor: sections follow the `#` headings.
+The sidebar shows the workspace folders with their subfolders and documents. To reorder, merge or rename sections, use each section's ⋯ menu in the editor.
 
 - **Rename** a document or folder by double-clicking it (or right-click → Rename). A renamed document stays open, and so do open files inside a renamed folder.
 - **Right-click** a document for Rename and Delete; right-click a folder for New document, New folder, Rename and (for top-level folders) Remove from workspace.

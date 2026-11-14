@@ -1,8 +1,8 @@
 import type { ChangeDesc } from '@codemirror/state'
 
-import { splitSections } from '../../../shared/document'
+import { moveSectionText, sectionLevel, splitSections } from '../../../shared/document'
 import { classifyLines, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from '../../../shared/notes'
-import { extractHeadings } from '../../../shared/text'
+import { extractHeadings, parseSectionMarker, sectionMarkerLine } from '../../../shared/text'
 
 /**
  * The model behind the two-column editor. The file is split into sections at its
@@ -37,8 +37,10 @@ export interface Projection {
 export interface ModelSection {
   /** The section's lines, joined with \n. Sections joined with \n make the file. */
   text: string
-  /** The heading, or null for the text before the first heading. */
+  /** The heading or name, or null for the text before the first section. */
   title: string | null
+  /** Starts at a `<!-- section: Name -->` marker rather than a heading. */
+  named: boolean
 }
 
 /** Splits a file into sections that cover every line, so joining them gives the file back. */
@@ -47,9 +49,9 @@ export function partition(text: string): ModelSection[] {
   const titled = splitSections(text).filter((section) => section.title !== null)
   const sections: ModelSection[] = []
   const first = titled[0]?.line ?? lines.length + 1
-  if (first > 1) sections.push({ title: null, text: lines.slice(0, first - 1).join('\n') })
+  if (first > 1) sections.push({ title: null, named: false, text: lines.slice(0, first - 1).join('\n') })
   for (const section of titled) {
-    sections.push({ title: section.title, text: lines.slice(section.line - 1, section.endLine).join('\n') })
+    sections.push({ title: section.title, named: section.named, text: lines.slice(section.line - 1, section.endLine).join('\n') })
   }
   return sections
 }
@@ -65,9 +67,11 @@ export function showsPreamble(sections: readonly ModelSection[]): boolean {
   return sections.length === 1 || first.text.trim() !== ''
 }
 
-/** The section's heading as it reads now. */
+/** The section's name as it reads now: its marker's, or its heading. */
 export function sectionTitle(text: string): string | null {
-  return extractHeadings(text)[0]?.text ?? null
+  const first = text.split('\n').find((line) => line.trim() !== '')
+  const name = first === undefined ? null : parseSectionMarker(first)
+  return name ?? extractHeadings(text)[0]?.text ?? null
 }
 
 /** Which of a section's lines an editor of `kind` shows. */
@@ -86,12 +90,18 @@ function shownLines(lines: readonly string[], kind: CellKind): boolean[] {
     })
     return shown
   }
+  // Section markers are the section's name, shown above the row rather than in the text.
+  const marker = lines.map((line, index) => roles[index] === 'output' && parseSectionMarker(line) !== null)
+  const text = (index: number) => roles[index] === 'output' && !marker[index] && lines[index].trim() !== ''
+  let firstText = -1
   let lastText = -1
-  roles.forEach((role, index) => {
-    if (role === 'output' && lines[index].trim() !== '') lastText = index
+  roles.forEach((_, index) => {
+    if (!text(index)) return
+    if (firstText < 0) firstText = index
+    lastText = index
   })
-  // Blank lines at the end, and the blank line that sets a notes block apart, stay hidden.
-  return roles.map((role, index) => role === 'output' && index <= lastText
+  // Blank lines at either end, and the blank line that sets a notes block apart, stay hidden.
+  return roles.map((role, index) => role === 'output' && !marker[index] && index >= firstText && index <= lastText
     && !(lines[index].trim() === '' && roles[index + 1] === 'open'))
 }
 
@@ -226,4 +236,83 @@ export function changedRun(before: readonly string[], after: readonly string[]):
     endAfter -= 1
   }
   return { start, endBefore, endAfter }
+}
+
+// Section operations, on the whole text and a section's index in `partition`.
+
+function replaceSection(text: string, index: number, change: (lines: string[]) => string[] | null): string | null {
+  const sections = partition(text)
+  const section = sections[index]
+  if (!section) return null
+  const lines = change(section.text.split('\n'))
+  if (lines === null) return null
+  const next = [...sections.slice(0, index), ...(lines.length ? [{ text: lines.join('\n') }] : []), ...sections.slice(index + 1)]
+  return joinSections(next)
+}
+
+const HEADING = /^(\s{0,3})(#{1,6})(\s+)(.*?)(\s+#+)?\s*$/
+
+/** Renames a section: its marker's name, or its heading's text. */
+export function renameSection(text: string, index: number, name: string): string | null {
+  const clean = name.replace(/\s+/g, ' ').trim()
+  if (!clean) return null
+  return replaceSection(text, index, (lines) => {
+    if (parseSectionMarker(lines[0]) !== null) return [sectionMarkerLine(clean), ...lines.slice(1)]
+    const heading = HEADING.exec(lines[0])
+    if (!heading) return null
+    return [`${heading[1]}${heading[2]} ${clean}`, ...lines.slice(1)]
+  })
+}
+
+/** Shows a section's name as a heading in the text, or keeps it as a name only. */
+export function setSectionHeading(text: string, index: number, heading: boolean): string | null {
+  const level = sectionLevel(extractHeadings(text))
+  return replaceSection(text, index, (lines) => {
+    const name = parseSectionMarker(lines[0])
+    if (heading && name !== null) return [`${'#'.repeat(level)} ${name}`, ...lines.slice(1)]
+    const match = HEADING.exec(lines[0])
+    if (!heading && name === null && match) return [sectionMarkerLine(match[4]), ...lines.slice(1)]
+    return null
+  })
+}
+
+/**
+ * Joins a section to the one before it: its marker goes, and its heading becomes a
+ * subheading (so the words stay).
+ */
+export function mergeIntoPrevious(text: string, index: number): string | null {
+  if (index < 1) return null
+  return replaceSection(text, index, (lines) => {
+    if (parseSectionMarker(lines[0]) !== null) {
+      let start = 1
+      while (start < lines.length - 1 && lines[start].trim() === '') start += 1
+      return lines.slice(start)
+    }
+    const heading = HEADING.exec(lines[0])
+    if (!heading) return null
+    if (heading[2].length >= 6) return lines.slice(1)
+    return [`${heading[1]}#${heading[2]}${heading[3]}${heading[4]}`, ...lines.slice(1)]
+  })
+}
+
+export function deleteSection(text: string, index: number): string | null {
+  return replaceSection(text, index, () => [])
+}
+
+/** Swaps a section with the one before (-1) or after (1). The text before the first section stays put. */
+export function moveSection(text: string, index: number, direction: -1 | 1): string | null {
+  const sections = partition(text)
+  const offset = sections[0]?.title === null ? 1 : 0
+  if (index < offset) return null
+  return moveSectionText(text, index - offset, index - offset + direction)
+}
+
+/** Starts a named section at line `line` (0-based) of section `index`. */
+export function splitSection(text: string, index: number, line: number, name: string): string | null {
+  return replaceSection(text, index, (lines) => {
+    if (line < 1 || line >= lines.length) return null
+    const before = lines.slice(0, line)
+    while (before.length > 0 && before[before.length - 1].trim() === '') before.pop()
+    return [...before, '', sectionMarkerLine(name), ...lines.slice(line)]
+  })
 }

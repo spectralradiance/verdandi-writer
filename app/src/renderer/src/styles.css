@@ -2262,20 +2262,93 @@ body.resizing {
   flex: 1;
 }
 
-.cell-caption-title {
-  padding-top: 14px;
+/* The section's name: a heading in the notes view (the text shows its own heading
+   in the text view), or a name that is not part of the text. Beside it, the menu. */
+.section-row.has-name-line {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.section-name-line {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 10px 0 24px;
+}
+
+.has-name-line .section-secondary {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+
+.section-name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-serif);
   font-size: 1.25em;
   font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
   color: var(--text);
 }
 
-.section-preamble .cell-caption-title {
+.section-name-line.named .section-name {
+  font-size: 1.05em;
+  font-weight: 500;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.section-preamble .section-name {
   font-weight: 400;
   font-style: italic;
   color: var(--muted);
+}
+
+.section-name-rule {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--border);
+}
+
+.section-name-input {
+  flex: 0 1 26em;
+  min-width: 6em;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  font-family: var(--font-serif);
+  font-size: 1.15em;
+  color: var(--text);
+  background: var(--bg);
+  outline: none;
+}
+
+.section-primary {
+  position: relative;
+}
+
+.section-menu-float {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+
+.section-menu-button {
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.section-row:hover .section-menu-button,
+.section-menu-button:focus-visible,
+.section-menu-button[data-state='open'] {
+  opacity: 1;
 }
 
 .cell-hide,
@@ -2351,8 +2424,14 @@ body.resizing {
     max-height: var(--row-height, max(7rem, var(--fit-height, 12rem)));
   }
 
+  .has-name-line .section-secondary {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .cell-hide,
-  .section-show {
+  .section-show,
+  .section-menu-button {
     opacity: 1;
   }
 
