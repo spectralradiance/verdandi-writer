@@ -273,25 +273,45 @@ export function SectionGrid({
   }, [shownRows])
 
   /**
-   * Starts a named section at the paragraph the cursor is in (in a section's text),
-   * then asks for its name. False when the cursor is in the section's first paragraph.
+   * The line of a section's text where a new section would start: the line the cursor
+   * (or the start of the selection) is on, or the next one with text if that line is
+   * blank. Null when that is the section's first line, or the cursor is not in its text.
    */
+  const splitLine = useCallback((id: number): number | null => {
+    const row = rows.current.find((candidate) => candidate.id === id)
+    const handle = handles.current.get(cellKey(id, 'output'))
+    if (!row || !handle) return null
+    const text = handle.getText()
+    // A selection made downwards ends at the cursor; it starts a selection's length before.
+    const cursor = handle.cursor()
+    const selected = handle.getSelection()
+    const start = selected && text.slice(cursor - selected.length, cursor) === selected ? cursor - selected.length : cursor
+    const lines = text.split('\n')
+    let line = text.slice(0, start).split('\n').length - 1
+    while (line < lines.length && lines[line].trim() === '') line += 1
+    return line > 0 && line < lines.length ? line : null
+  }, [])
+
+  /**
+   * Shows the name box. Deferred, so a menu that is closing has given focus back
+   * first: the box would otherwise lose focus at once, which cancels the rename.
+   */
+  const startRename = useCallback((id: number) => {
+    window.setTimeout(() => setRenaming(id), 0)
+  }, [])
+
+  /** Starts a named section at the line `splitLine` finds, then asks for its name. */
   const splitAtCursor = useCallback((id: number) => {
     const index = rows.current.findIndex((row) => row.id === id)
     const row = rows.current[index]
-    const handle = handles.current.get(cellKey(id, 'output'))
-    if (!row || !handle) return false
-    const lines = row.output.text.split('\n')
-    let line = row.output.text.slice(0, handle.cursor()).split('\n').length - 1
-    if (lines[line]?.trim() === '') return false
-    while (line > 0 && lines[line - 1].trim() !== '') line -= 1
-    if (line === 0) return false
+    const line = splitLine(id)
+    if (!row || line === null) return false
     const sectionLine = shownLineNumbers(row.output)[line]
     if (!applyText(splitSection(getText(), index, sectionLine, NEW_SECTION_NAME))) return false
     const created = rows.current[index + 1]
-    if (created) setRenaming(created.id)
+    if (created) startRename(created.id)
     return true
-  }, [applyText, getText])
+  }, [applyText, getText, splitLine, startRename])
 
   const keysFor = useCallback((id: number, kind: CellKind): KeyBinding[] => {
     const atEdge = (view: EditorView, forward: boolean) => {
@@ -449,7 +469,7 @@ export function SectionGrid({
     const items: MenuItem[] = []
     if (titled) {
       items.push(
-        { label: 'Rename section', onClick: () => setRenaming(rowMeta.id) },
+        { label: 'Rename section', onClick: () => startRename(rowMeta.id) },
         {
           label: 'Show name as a heading',
           checked: !rowMeta.named,
@@ -474,15 +494,16 @@ export function SectionGrid({
       onClick: withText((text) => mergeIntoPrevious(text, index + 1)),
     })
     if (primary === 'output') {
-      const handle = handles.current.get(cellKey(rowMeta.id, 'output'))
+      const inText = active.current?.id === rowMeta.id && active.current.kind === 'output'
+      const possible = inText && splitLine(rowMeta.id) !== null
       items.push({
         label: 'New section from this paragraph',
         hint: 'Ctrl+Alt+S',
-        disabled: !handle || active.current?.id !== rowMeta.id || active.current.kind !== 'output',
-        title: 'Starts a named section at the paragraph the cursor is in',
-        onClick: () => {
-          if (!splitAtCursor(rowMeta.id)) window.alert('Put the cursor in a later paragraph of this section: the first one already starts it.')
-        },
+        disabled: !possible,
+        title: possible
+          ? 'Starts a named section at the paragraph the cursor is in'
+          : inText ? 'The cursor is in the paragraph that already starts this section' : 'Put the cursor in a paragraph of this section first',
+        onClick: () => splitAtCursor(rowMeta.id),
       })
     }
     items.push(
