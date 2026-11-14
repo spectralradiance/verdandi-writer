@@ -8,7 +8,7 @@ import { DropdownMenu, type MenuItem } from '../menu'
 import { readPref, writePref } from '../prefs'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
 import {
-  applyChange, type CellKind, changedRun, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition,
+  applyChange, type CellKind, changedRun, continuedName, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition,
   project, type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble,
   splitSection, toSectionOffset,
 } from './sectionModel'
@@ -273,24 +273,41 @@ export function SectionGrid({
   }, [shownRows])
 
   /**
-   * The line of a section's text where a new section would start: the line the cursor
-   * (or the start of the selection) is on, or the next one with text if that line is
-   * blank. Null when that is the section's first line, or the cursor is not in its text.
+   * The document as it would be after starting a named section at the cursor: at the
+   * line the cursor (or the selection) starts on, or the next line with text if that
+   * one is blank. With a selection, the new section holds just the selected lines, and
+   * the text after them continues as “Name (continued)”. Null when the cursor is not
+   * in the section's text, or the section would be left with only its heading.
    */
-  const splitLine = useCallback((id: number): number | null => {
-    const row = rows.current.find((candidate) => candidate.id === id)
+  const planSplit = useCallback((id: number): string | null => {
+    const index = rows.current.findIndex((row) => row.id === id)
+    const row = rows.current[index]
     const handle = handles.current.get(cellKey(id, 'output'))
     if (!row || !handle) return null
     const text = handle.getText()
-    // A selection made downwards ends at the cursor; it starts a selection's length before.
     const cursor = handle.cursor()
     const selected = handle.getSelection()
+    // The cursor is at one end of the selection: the end if it was made downwards.
     const start = selected && text.slice(cursor - selected.length, cursor) === selected ? cursor - selected.length : cursor
+    const end = start + selected.length
     const lines = text.split('\n')
-    let line = text.slice(0, start).split('\n').length - 1
-    while (line < lines.length && lines[line].trim() === '') line += 1
-    return line > 0 && line < lines.length ? line : null
-  }, [])
+    const lineAt = (offset: number) => text.slice(0, offset).split('\n').length - 1
+    const nextText = (line: number) => {
+      while (line < lines.length && lines[line].trim() === '') line += 1
+      return line
+    }
+    const first = nextText(lineAt(start))
+    if (first >= lines.length) return null
+    const shown = shownLineNumbers(row.output)
+    let rest: { line: number; name: string } | undefined
+    if (selected) {
+      // A selection that ends at the start of a line does not take that line.
+      const last = lineAt(end) - (end > start && text[end - 1] === '\n' ? 1 : 0)
+      const after = nextText(Math.max(last, first) + 1)
+      if (after < lines.length) rest = { line: shown[after], name: continuedName(row.title) }
+    }
+    return splitSection(getText(), index, shown[first], NEW_SECTION_NAME, rest)
+  }, [getText])
 
   /**
    * Shows the name box. Deferred, so a menu that is closing has given focus back
@@ -300,18 +317,14 @@ export function SectionGrid({
     window.setTimeout(() => setRenaming(id), 0)
   }, [])
 
-  /** Starts a named section at the line `splitLine` finds, then asks for its name. */
+  /** Starts a named section at the cursor (see `planSplit`), then asks for its name. */
   const splitAtCursor = useCallback((id: number) => {
     const index = rows.current.findIndex((row) => row.id === id)
-    const row = rows.current[index]
-    const line = splitLine(id)
-    if (!row || line === null) return false
-    const sectionLine = shownLineNumbers(row.output)[line]
-    if (!applyText(splitSection(getText(), index, sectionLine, NEW_SECTION_NAME))) return false
+    if (!applyText(planSplit(id))) return false
     const created = rows.current[index + 1]
     if (created) startRename(created.id)
     return true
-  }, [applyText, getText, splitLine, startRename])
+  }, [applyText, planSplit, startRename])
 
   const keysFor = useCallback((id: number, kind: CellKind): KeyBinding[] => {
     const atEdge = (view: EditorView, forward: boolean) => {
@@ -495,14 +508,19 @@ export function SectionGrid({
     })
     if (primary === 'output') {
       const inText = active.current?.id === rowMeta.id && active.current.kind === 'output'
-      const possible = inText && splitLine(rowMeta.id) !== null
+      const possible = inText && planSplit(rowMeta.id) !== null
+      const selection = inText && (handles.current.get(cellKey(rowMeta.id, 'output'))?.getSelection() ?? '') !== ''
       items.push({
-        label: 'New section from this paragraph',
+        label: selection ? 'New section from the selection' : 'New section from this paragraph',
         hint: 'Ctrl+Alt+S',
         disabled: !possible,
         title: possible
-          ? 'Starts a named section at the paragraph the cursor is in'
-          : inText ? 'The cursor is in the paragraph that already starts this section' : 'Put the cursor in a paragraph of this section first',
+          ? selection
+            ? 'The selected paragraphs become a named section; the text after them continues the current section'
+            : 'Starts a named section at the paragraph the cursor is in'
+          : inText
+            ? 'The section would be left with nothing but its heading: put the cursor in a later paragraph'
+            : 'Put the cursor in a paragraph of this section first',
         onClick: () => splitAtCursor(rowMeta.id),
       })
     }

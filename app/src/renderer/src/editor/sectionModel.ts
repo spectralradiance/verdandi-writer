@@ -240,11 +240,11 @@ export function changedRun(before: readonly string[], after: readonly string[]):
 
 // Section operations, on the whole text and a section's index in `partition`.
 
-function replaceSection(text: string, index: number, change: (lines: string[]) => string[] | null): string | null {
+function replaceSection(text: string, index: number, change: (lines: string[], section: ModelSection) => string[] | null): string | null {
   const sections = partition(text)
   const section = sections[index]
   if (!section) return null
-  const lines = change(section.text.split('\n'))
+  const lines = change(section.text.split('\n'), section)
   if (lines === null) return null
   const next = [...sections.slice(0, index), ...(lines.length ? [{ text: lines.join('\n') }] : []), ...sections.slice(index + 1)]
   return joinSections(next)
@@ -307,12 +307,34 @@ export function moveSection(text: string, index: number, direction: -1 | 1): str
   return moveSectionText(text, index - offset, index - offset + direction)
 }
 
-/** Starts a named section at line `line` (0-based) of section `index`. */
-export function splitSection(text: string, index: number, line: number, name: string): string | null {
-  return replaceSection(text, index, (lines) => {
+const trimEnd = (lines: string[]) => {
+  const out = [...lines]
+  while (out.length > 0 && out[out.length - 1].trim() === '') out.pop()
+  return out
+}
+
+/**
+ * Starts a named section at line `line` (0-based) of section `index`. With `end`, the
+ * new section stops before line `end.line`, and the rest of the section after it
+ * continues as another named section, `end.name`, so the text keeps its order.
+ * Null when the section would be left with nothing but its heading or name.
+ */
+export function splitSection(text: string, index: number, line: number, name: string, end?: { line: number; name: string }): string | null {
+  return replaceSection(text, index, (lines, section) => {
     if (line < 1 || line >= lines.length) return null
-    const before = lines.slice(0, line)
-    while (before.length > 0 && before[before.length - 1].trim() === '') before.pop()
-    return [...before, '', sectionMarkerLine(name), ...lines.slice(line)]
+    const before = trimEnd(lines.slice(0, line))
+    const ownLine = section.title === null ? 0 : 1
+    if (!before.slice(ownLine).some((value) => value.trim() !== '')) return null
+    const split = [...before, '', sectionMarkerLine(name)]
+    if (!end || end.line <= line || end.line >= lines.length || !lines.slice(end.line).some((value) => value.trim() !== '')) {
+      return [...split, ...lines.slice(line)]
+    }
+    return [...split, ...trimEnd(lines.slice(line, end.line)), '', sectionMarkerLine(end.name), ...lines.slice(end.line)]
   })
+}
+
+/** The name for the rest of a section after a split: “Name (continued)”. */
+export function continuedName(title: string | null): string {
+  if (title === null) return 'Continued'
+  return `${title.replace(/\s*\(continued\)$/i, '')} (continued)`
 }
