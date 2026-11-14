@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol, safeStorage, shell, type OpenDialogOptions } from 'electron'
 import { existsSync } from 'node:fs'
-import { rm, writeFile } from 'node:fs/promises'
+import { rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, extname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -446,6 +446,23 @@ function registerIpc(): void {
     if (!entry) throw new Error('That deletion can no longer be undone.')
     await restoreFile(entry)
     trashedFiles.delete(text(undoId))
+  })
+  ipcMain.handle(IPC.filesReveal, async (_event, target: unknown) => {
+    const resolved = guard.resolve(target)
+    if ((await stat(resolved)).isDirectory()) {
+      const error = await shell.openPath(resolved)
+      if (error) throw new Error(error)
+    } else {
+      shell.showItemInFolder(resolved)
+    }
+  })
+  ipcMain.handle(IPC.foldersTrash, async (_event, folder: unknown) => {
+    const resolved = guard.resolve(folder)
+    if (settings.get().workspaceRoots.some((root) => samePath(root, resolved, process.platform))) {
+      throw new Error('This is a workspace folder. Use “Remove from workspace” instead; its files are not touched.')
+    }
+    if (!(await stat(resolved)).isDirectory()) throw new Error('That is not a folder.')
+    await shell.trashItem(resolved)
   })
 }
 

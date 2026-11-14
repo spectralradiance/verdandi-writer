@@ -57,3 +57,10 @@ export function samePath(left: string, right: string): boolean {
   }
   return normalize(left) === normalize(right)
 }
+
+/** Whether `path` is `folder` itself or somewhere inside it. */
+export function isWithin(path: string, folder: string): boolean {
+  if (samePath(path, folder)) return true
+  const base = folder.replace(/[\\/]+$/, '')
+  return path.length > base.length && /[\\/]/.test(path[base.length]) && samePath(path.slice(0, base.length), base)
+}

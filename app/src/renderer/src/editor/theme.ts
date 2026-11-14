@@ -78,6 +78,20 @@ const live = EditorView.theme({
   '&.cm-live .cm-scroller': { fontFamily: 'var(--font-serif)', fontSize: 'var(--text-size)', lineHeight: 'var(--text-line-height)' },
   '&.cm-live .cm-content': { maxWidth: '760px' },
 
+  // The document title: centered display type with a short rule, nothing like a # heading.
+  '.cm-doc-title': {
+    margin: '0.4em 0 0.9em',
+    padding: '0.5em 0 0.7em',
+    textAlign: 'center',
+    fontFamily: 'var(--font-serif)',
+    fontSize: '2.3em',
+    fontWeight: '400',
+    letterSpacing: '0.04em',
+    lineHeight: '1.2',
+    color: 'var(--text)',
+    background: 'linear-gradient(var(--accent), var(--accent)) no-repeat bottom center / 3em 2px',
+  },
+
   '.cm-md-heading': { fontWeight: '650', lineHeight: '1.3' },
   '.cm-md-h1': { fontSize: '2em', padding: '0.6em 0 0.25em !important' },
   '.cm-md-h2': { fontSize: '1.55em', padding: '0.55em 0 0.2em !important', borderBottom: '1px solid var(--border)' },

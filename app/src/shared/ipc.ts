@@ -258,6 +258,8 @@ export interface OgmaApi {
     /** Moves a file to the Recycle Bin; the result can be passed to `restore`. */
     trash(path: string): Promise<{ undoId: string }>
     restore(undoId: string): Promise<void>
+    /** Shows a file in the system file manager (selected), or opens a folder there. */
+    reveal(path: string): Promise<void>
     /** Paths changed on disk under any workspace root (debounced). */
     onChanged(listener: (paths: string[]) => void): () => void
   }
@@ -266,6 +268,8 @@ export interface OgmaApi {
     rename(path: string, name: string): Promise<string>
     read(path: string): Promise<FolderListing>
     create(parent: string, name: string): Promise<string>
+    /** Moves a folder and everything in it to the Recycle Bin. Workspace roots cannot be deleted. */
+    trash(path: string): Promise<void>
   }
   dictionary: {
     status(): Promise<DictionaryStatus>
@@ -347,6 +351,8 @@ export const IPC = {
   filesRename: 'files:rename',
   filesTrash: 'files:trash',
   filesRestore: 'files:restore',
+  filesReveal: 'files:reveal',
+  foldersTrash: 'folders:trash',
   foldersRead: 'folders:read',
   foldersCreate: 'folders:create',
   foldersRename: 'folders:rename',

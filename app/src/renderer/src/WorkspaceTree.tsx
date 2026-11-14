@@ -1,9 +1,10 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 
+import { type SectionSummary, summarizeSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
 import type { FolderListing } from '../../shared/ipc'
 import { joinPath, samePath } from '../../shared/paths'
-import { onDiskChange, touchesFolder } from './changes'
+import { onDiskChange, touchesFile, touchesFolder } from './changes'
 import { FilesIcon, OutlineIcon, PaneIcon, SearchIcon } from './icons'
 import { ContextMenu } from './menu'
 import { errorMessage, type OpenTarget } from './target'
@@ -12,13 +13,26 @@ import { ChevronDown, ChevronRight, FilePlus, FolderPlus, X } from 'lucide-react
 export interface TreeActions {
   target: OpenTarget | null
   open: (target: OpenTarget) => void
+  /** Opens a file and scrolls to a line. */
+  openAt: (path: string, line: number) => void
+  /** Moves the `from`th section of a file to the place of the `to`th. */
+  moveSection: (file: string, from: number, to: number) => Promise<void>
   /** Renames a folder on disk, keeping whatever is open inside it open. */
   renameFolder: (folder: string, name: string) => Promise<void>
   /** Renames a file on disk, keeping it open if it is. */
   renameFile: (file: string, name: string) => Promise<void>
   /** Moves a file to the Recycle Bin, offering Undo afterwards. */
   deleteFile: (file: string) => Promise<void>
+  /** Moves a folder and its contents to the Recycle Bin, after asking. */
+  deleteFolder: (folder: string) => Promise<void>
+  /** Shows a file or folder in the system file manager. */
+  reveal: (path: string) => void
 }
+
+/** The system file manager's name, for menu labels. */
+const REVEAL_LABEL = /Windows/i.test(navigator.userAgent)
+  ? 'Show in File Explorer'
+  : /Mac/i.test(navigator.userAgent) ? 'Reveal in Finder' : 'Open in file manager'
 
 const TreeContext = createContext<TreeActions | null>(null)
 
@@ -60,11 +74,33 @@ function NameInput({ initial, placeholder, depth, onSubmit, onCancel }: {
   )
 }
 
+/** A file's `#` sections, read from disk and kept current while it is expanded. */
+function useFileSections(path: string, enabled: boolean): SectionSummary[] {
+  const [sections, setSections] = useState<SectionSummary[]>([])
+  const load = useCallback(() => window.ogma.files.read(path, { allowMissing: true }).then(
+    (document) => setSections(document.mtimeMs === null ? [] : summarizeSections(document.text).filter((section) => section.title !== null)),
+    () => setSections([]),
+  ), [path])
+  useEffect(() => {
+    if (enabled) void load()
+  }, [enabled, load])
+  useEffect(() => {
+    if (!enabled) return
+    return onDiskChange((paths) => {
+      if (touchesFile(paths, path)) void load()
+    })
+  }, [enabled, path, load])
+  return sections
+}
+
 function FileRow({ folder, name, depth }: { folder: string; name: string; depth: number }) {
   const tree = useTree()
   const [renaming, setRenaming] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [drag, setDrag] = useState<{ from: number | null; over: number | null }>({ from: null, over: null })
   const path = joinPath(folder, name)
   const selected = tree.target !== null && samePath(tree.target.path, path)
+  const sections = useFileSections(path, expanded)
 
   if (renaming) {
     return (
@@ -84,6 +120,7 @@ function FileRow({ folder, name, depth }: { folder: string; name: string; depth:
     <li>
       <ContextMenu items={[
         { label: 'Rename', onClick: () => setRenaming(true) },
+        { label: REVEAL_LABEL, onClick: () => tree.reveal(path) },
         'separator',
         { label: 'Delete', onClick: () => void tree.deleteFile(path) },
       ]}>
@@ -91,15 +128,67 @@ function FileRow({ folder, name, depth }: { folder: string; name: string; depth:
           <button
             type="button"
             className={`tree-row tree-file${selected ? ' selected' : ''}`}
-            style={indent(depth, 18)}
+            style={indent(depth)}
             onClick={() => tree.open({ path })}
             onDoubleClick={() => setRenaming(true)}
+            aria-expanded={expanded}
             title={path}
           >
+            <span
+              className="tree-chevron"
+              role="button"
+              aria-label={expanded ? 'Hide sections' : 'Show sections'}
+              title={expanded ? 'Hide sections' : 'Show sections'}
+              onClick={(event) => {
+                event.stopPropagation()
+                setExpanded(!expanded)
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
             <span className="tree-label">{documentName(name)}</span>
           </button>
         </div>
       </ContextMenu>
+      {expanded && (
+        <ul className="tree">
+          {sections.length === 0 && <li className="tree-note" style={indent(depth + 1, 18)}>No sections yet</li>}
+          {sections.map((section, index) => (
+            <li
+              key={`${section.line}:${section.title}`}
+              className={`${drag.from === index ? 'dragging' : ''}${drag.from !== null && drag.over === index && drag.from !== index ? ' drop-target' : ''}`}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', section.title ?? '')
+                setDrag({ from: index, over: null })
+              }}
+              onDragOver={(event) => {
+                if (drag.from === null) return
+                event.preventDefault()
+                if (drag.over !== index) setDrag({ from: drag.from, over: index })
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                if (drag.from !== null && drag.from !== index) void tree.moveSection(path, drag.from, index)
+                setDrag({ from: null, over: null })
+              }}
+              onDragEnd={() => setDrag({ from: null, over: null })}
+            >
+              <button
+                type="button"
+                className="tree-row tree-section"
+                style={indent(depth + 1, 18 + (section.level - Math.min(...sections.map((item) => item.level))) * 12)}
+                onClick={() => tree.openAt(path, section.line)}
+                title={section.title ?? undefined}
+              >
+                <span className="tree-label">{section.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   )
 }
@@ -187,7 +276,12 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
         { label: 'New folder', onClick: () => startEditing('folder') },
         'separator',
         { label: 'Rename', onClick: () => setRenaming(true) },
-        ...(onRemoveRoot ? ['separator' as const, { label: 'Remove from workspace', onClick: onRemoveRoot }] : []),
+        { label: REVEAL_LABEL, onClick: () => tree.reveal(path) },
+        'separator',
+        // A workspace folder is removed from the workspace, never deleted from here.
+        onRemoveRoot
+          ? { label: 'Remove from workspace', onClick: onRemoveRoot, title: 'Its files are not touched' }
+          : { label: 'Delete', onClick: () => void tree.deleteFolder(path), title: 'Moves the folder and everything in it to the Recycle Bin' },
       ]}>
       <div className={`tree-row-wrap${depth === 0 ? ' tree-root' : ''}`}>
         <button

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { type SectionSummary, splitSections } from '../../shared/document'
+import { moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
 import type { SidecarStatus, WorkspaceState } from '../../shared/ipc'
 import { stripNotes } from '../../shared/notes'
 import { outlineMarkdown } from '../../shared/outline'
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences'
-import { samePath } from '../../shared/paths'
+import { isWithin, samePath } from '../../shared/paths'
 import { DocumentPane, type DocumentInfo, type DocumentPaneHandle } from './DocumentPane'
 import { ExportDialog } from './ExportDialog'
 import { type AiWorkspace, AiPanel } from './AiPanel'
@@ -190,11 +190,7 @@ export function App() {
     try {
       const renamed = await window.ogma.folders.rename(folder, name)
       // Open files inside the folder keep working at their new location.
-      const remap = (path: string) => {
-        if (samePath(path, folder)) return renamed
-        const inside = path.length > folder.length && samePath(path.slice(0, folder.length), folder) && /[\\/]/.test(path[folder.length])
-        return inside ? renamed + path.slice(folder.length) : path
-      }
+      const remap = (path: string) => (isWithin(path, folder) ? renamed + path.slice(folder.replace(/[\\/]+$/, '').length) : path)
       if (target) changeTarget({ path: remap(target.path) })
       setWorkspace(await window.ogma.workspace.get())
       setReloadToken((token) => token + 1)
@@ -216,6 +212,26 @@ export function App() {
       window.alert(errorMessage(error))
     }
   }, [target, flushAll, changeTarget])
+
+  /** Moves a folder and its contents to the Recycle Bin after asking, closing the open document if it was inside. */
+  const deleteFolder = useCallback(async (folder: string) => {
+    if (!window.confirm(`Move the folder “${folderName(folder)}” and everything in it to the Recycle Bin?`)) return
+    const holdsOpen = target !== null && isWithin(target.path, folder)
+    if (holdsOpen && !(await flushAll())) {
+      window.alert('The open document has unsaved changes that could not be saved. Resolve that first.')
+      return
+    }
+    try {
+      await window.ogma.folders.trash(folder)
+      if (holdsOpen) changeTarget(null)
+    } catch (error) {
+      window.alert(errorMessage(error))
+    }
+  }, [target, flushAll, changeTarget])
+
+  const reveal = useCallback((path: string) => {
+    window.ogma.files.reveal(path).catch((error: unknown) => window.alert(errorMessage(error)))
+  }, [])
 
   const toggleLive = useCallback(() => {
     setLive((value) => {
@@ -362,6 +378,25 @@ export function App() {
     await open({ path: hit.path })
   }, [open])
 
+  /** Reorders a file's sections: in the open editor as one undoable edit, otherwise on disk. */
+  const moveSection = useCallback(async (file: string, from: number, to: number) => {
+    const handle = panes.current.get(file)
+    try {
+      if (handle) {
+        const moved = moveSectionText(handle.getText(), from, to)
+        if (moved !== null) handle.replaceAll(moved)
+        return
+      }
+      const document = await window.ogma.files.read(file)
+      const moved = moveSectionText(document.text, from, to)
+      if (moved === null) return
+      const result = await window.ogma.files.write({ path: file, text: moved, format: document.format, expectedMtimeMs: document.mtimeMs })
+      if (!result.ok) window.alert(`“${folderName(file)}” changed on disk; try again.`)
+    } catch (error) {
+      window.alert(errorMessage(error))
+    }
+  }, [])
+
   const addRoot = () => void window.ogma.workspace.addRoot().then(setWorkspace)
   const removeRoot = (path: string) => void window.ogma.workspace.removeRoot(path).then(setWorkspace)
 
@@ -445,7 +480,11 @@ export function App() {
           open={(next) => void open(next)}
           renameFolder={renameFolder}
           renameFile={renameFile}
+          openAt={(path, line) => void openAt({ path, line })}
+          moveSection={moveSection}
           deleteFile={deleteFile}
+          deleteFolder={deleteFolder}
+          reveal={reveal}
           tab={sidebarTab}
           onTab={setSidebarTab}
           collapsed={!leftOpen}

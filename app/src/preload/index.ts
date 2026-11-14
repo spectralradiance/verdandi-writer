@@ -33,6 +33,7 @@ const api: OgmaApi = {
     rename: (path, name) => ipcRenderer.invoke(IPC.filesRename, path, name),
     trash: (path) => ipcRenderer.invoke(IPC.filesTrash, path),
     restore: (undoId) => ipcRenderer.invoke(IPC.filesRestore, undoId),
+    reveal: (path) => ipcRenderer.invoke(IPC.filesReveal, path),
     onChanged: (listener) => {
       const handler = (_event: IpcRendererEvent, paths: string[]): void => listener(paths)
       ipcRenderer.on(IPC.filesChanged, handler)
@@ -45,6 +46,7 @@ const api: OgmaApi = {
     read: (path) => ipcRenderer.invoke(IPC.foldersRead, path),
     create: (parent, name) => ipcRenderer.invoke(IPC.foldersCreate, parent, name),
     rename: (path, name) => ipcRenderer.invoke(IPC.foldersRename, path, name),
+    trash: (path) => ipcRenderer.invoke(IPC.foldersTrash, path),
   },
   dictionary: {
     status: () => ipcRenderer.invoke(IPC.dictionaryStatus),

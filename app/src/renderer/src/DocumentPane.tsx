@@ -375,6 +375,7 @@ export function DocumentPane({
           key={loaded.generation}
           ref={editor}
           path={path}
+          title={fileName.replace(/\.[^.]+$/, '')}
           initialText={loaded.document.text}
           live={live}
           focusMode={focusMode}
