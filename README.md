@@ -133,3 +133,9 @@ cd sidecar; .\.venv\Scripts\python.exe -m pytest -q
 - The sidecar is given the app's process id and exits when the app does, so it cannot outlive the app, even after a crash.
 - If the sidecar dies or fails three health checks, the app restarts it with backoff, up to three attempts, then shows the error and logs.
 - `OGMA_PYTHON` and `OGMA_SIDECAR_DIR` override the Python and sidecar locations.
+
+## License
+
+[GPL-3.0-or-later](LICENSE), for both the app and the sidecar. Forks and modified versions
+you distribute must also be released under the GPL. The Wiktionary data the app downloads
+keeps its own terms (CC BY-SA and GFDL).
