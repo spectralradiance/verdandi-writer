@@ -169,9 +169,9 @@ Eras/
 ---
 verdandi: document
 layers:
-  - { name: notes, kind: prose, anchored: true }
-  - { name: outline, kind: list }
-  - { name: images, kind: gallery }
+  - {name: notes, kind: prose, anchored: true}
+  - {name: outline, kind: list}
+  - {name: images, kind: gallery}
 ---
 ![[The First Era]]
 ![[The Second Era]]
@@ -376,6 +376,13 @@ Desktop stays the full app; web and mobile are a lighter editor over the same fi
 
 ### Phase 8 — Sections and layers
 Builds the format in §3b. Unlike the folder-of-sections format removed in Phase 2c, which split each section into a notes file and an output file, each section is one file holding all of its layers.
+
+**Progress (2026-11-14):**
+- **Done:** the disk format in `shared/layers.ts`. It covers frontmatter edits that keep comments and field order, declared layers, callouts on disk ↔ `::: layer` blocks in the working text, section files, the document note, and the one-file → folder conversion with its file names.
+- **Also done:** `main/folderDocument.ts` converts a file on disk and undoes the conversion.
+- **Not yet wired into the app:** opening a folder document, converting on open, and the read-only mode for other notes all wait for steps 3–5.
+- **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
+
 1. **Model:**
    - Parse and write a section file: frontmatter, the text layer, anchored callouts and end callouts. Round-trip tests come first, against files edited by hand and in Obsidian.
    - Parse and write the document note: its layers and its embeds.
