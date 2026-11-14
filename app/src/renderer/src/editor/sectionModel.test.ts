@@ -2,7 +2,7 @@ import { ChangeSet, Text } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 
 import {
-  applyChange, changedRun, continuedName, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition, project,
+  applyChange, changedRun, continuedName, deleteSection, fromSectionOffset, isFolderText, joinSections, mergeIntoPrevious, moveSection, partition, project,
   type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble, splitSection,
   toSectionOffset,
 } from './sectionModel'
@@ -65,6 +65,28 @@ describe('named sections', () => {
     // A selection that runs to the end of the section needs no continuation.
     expect(splitSection('# A\nOne.\nTwo.\n', 0, 2, 'B', { line: 3, name: 'C' })).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n')
     expect(continuedName('A (continued)')).toBe('A (continued)')
+  })
+})
+
+describe('a document folder shown as one text', () => {
+  const text = '<!-- section: One {#a1 .heading} -->\nFirst.\n# Not a section\n<!-- section: Two {#b2} -->\nSecond.'
+
+  it('splits at markers only, and knows which names are headings', () => {
+    expect(isFolderText(text)).toBe(true)
+    expect(partition(text).map((section) => [section.title, section.named, section.heading])).toEqual([['One', true, true], ['Two', true, false]])
+  })
+
+  it('keeps ids through renaming, and switches the heading in the marker', () => {
+    expect(renameSection(text, 1, 'Deux')).toContain('<!-- section: Deux {#b2} -->')
+    expect(setSectionHeading(text, 1, true)).toContain('<!-- section: Two {#b2 .heading} -->')
+    expect(setSectionHeading(text, 0, false)).toMatch(/^<!-- section: One \{#a1\} -->/)
+    expect(setSectionHeading(text, 0, true)).toBeNull()
+  })
+
+  it('keeps a merged heading as a subheading, and gives split sections ids', () => {
+    expect(mergeIntoPrevious(text.replace('{#b2}', '{#b2 .heading}'), 1)).toContain('# Not a section\n## Two\nSecond.')
+    const split = splitSection(`${text}\nMore.`, 1, 2, 'Three')!
+    expect(split).toMatch(/Second\.\n\n<!-- section: Three \{#[0-9a-z]{8}\} -->\nMore\.$/)
   })
 })
 

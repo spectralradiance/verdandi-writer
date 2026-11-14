@@ -8,7 +8,7 @@
 import { type Document, isMap, isScalar, isSeq, parseDocument } from 'yaml'
 
 import { hasNotes, splitSections } from './document'
-import { extractSectionMarkers } from './text'
+import { extractSectionMarkers, sectionMarkerLine } from './text'
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -433,4 +433,92 @@ export function convertOneFile(text: string, documentName: string, newId: () => 
     return { name, text: writeSectionFile({ yaml, text: working }, [NOTES_LAYER.name]) }
   })
   return { note: newDocumentNote([NOTES_LAYER], files.map((file) => file.name)), sections: files }
+}
+
+// ---------------------------------------------------------------------------
+// A folder document as the editor sees it: one text
+//
+// Each section is its marker, `<!-- section: Name {#id .heading} -->`, then its working
+// text. The id says which file the section is; `.heading` that exports show the name as
+// a heading. Markers with ids make only markers start sections (see `sectionStarts`),
+// so a heading in a section's text never splits it.
+
+export interface AssembledSection {
+  /** The section file's id; null for a section made in the editor and not saved yet. */
+  id: string | null
+  name: string
+  heading: boolean
+  /** The working text. */
+  text: string
+}
+
+export interface DisassembledSection extends AssembledSection {
+  /** The section's lines as they are in the text, to tell which sections changed. */
+  segment: string
+  /** The 1-based line of its marker; 0 for text before the first marker. */
+  line: number
+}
+
+/** A stable id made from `seed`: eight base-36 characters of its FNV-1a hash. */
+export function stableId(seed: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return `s${hash.toString(36).padStart(7, '0')}`
+}
+
+/** One section's lines in the editor's text: its marker, then its text without the final line break. */
+export function assembleSection(section: AssembledSection): string {
+  const marker = sectionMarkerLine(section.name, { id: section.id, heading: section.heading })
+  const body = section.text.endsWith('\n') ? section.text.slice(0, -1) : section.text
+  return body ? `${marker}\n${body}` : marker
+}
+
+export function assembleDocument(sections: readonly AssembledSection[]): string {
+  return sections.map(assembleSection).join('\n')
+}
+
+/**
+ * The sections of the editor's text. Text before the first marker (typed or pasted
+ * there) becomes a section of its own, "Introduction".
+ */
+export function disassembleDocument(text: string): DisassembledSection[] {
+  const lines = text.split('\n')
+  const markers = extractSectionMarkers(text)
+  const sections: DisassembledSection[] = []
+  const first = markers[0]?.line ?? lines.length + 1
+  const preamble = lines.slice(0, first - 1)
+  if (preamble.some((line) => line.trim() !== '')) {
+    sections.push({ id: null, name: INTRODUCTION, heading: false, text: `${preamble.join('\n')}\n`, segment: preamble.join('\n'), line: 0 })
+  }
+  markers.forEach((marker, index) => {
+    const end = (markers[index + 1]?.line ?? lines.length + 1) - 1
+    const body = lines.slice(marker.line, end)
+    sections.push({
+      id: marker.id,
+      name: marker.name,
+      heading: marker.heading,
+      text: body.length > 0 ? `${body.join('\n')}\n` : '',
+      segment: lines.slice(marker.line - 1, end).join('\n'),
+      line: marker.line,
+    })
+  })
+  return sections
+}
+
+/** A section's working text as written to its file: no blank lines at either end. */
+export function tidySectionText(text: string): string {
+  const lines = trimBlankLines(text.split('\n'))
+  return lines.length > 0 ? `${lines.join('\n')}\n` : ''
+}
+
+/** The text with a folder document's `.heading` markers turned into `#` headings, for export. */
+export function markersToHeadings(text: string): string {
+  const markers = extractSectionMarkers(text).filter((marker) => marker.heading)
+  if (markers.length === 0) return text
+  const lines = text.split('\n')
+  for (const marker of markers) lines[marker.line - 1] = `# ${marker.name}`
+  return lines.join('\n')
 }

@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type { DailyWords, DocumentStats } from '../shared/ipc'
 import { splitSections, splitWordCounts } from '../shared/document'
-import { readTextDocument } from './fileService'
+import { readDocument } from './folderDocument'
 
 interface StatsFile {
   /** Net words changed per local day: the text itself and its notes blocks. */
@@ -66,7 +66,7 @@ export class WritingStats {
 
   /** Per-section counts for a document (split at its headings), with its goal. */
   async documentStats(file: string): Promise<DocumentStats> {
-    const [document, info] = await Promise.all([readTextDocument(file, true), stat(file).catch(() => null)])
+    const [document, info] = await Promise.all([readDocument(file, true), stat(file).catch(() => null)])
     const sections = splitSections(document.text).map(({ title, line, hasText, notesWords, outputWords }) => ({ title, line, hasText, notesWords, outputWords }))
     return {
       sections,

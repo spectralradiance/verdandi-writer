@@ -94,21 +94,44 @@ export function matchCase(original: string, replacement: string): string {
 /** `<!-- section: Name -->`: starts a section that has a name but no heading. */
 const SECTION_MARKER = /^[ \t]{0,3}<!--[ \t]*section:[ \t]*(.*?)[ \t]*-->[ \t]*$/i
 
+/**
+ * A marker's attributes, after its name: `{#7f3a .heading}`. Only a folder document,
+ * shown to the editor as one text, writes them: the id says which section file the
+ * section is, and `.heading` that exports show its name as a heading.
+ */
+const MARKER_ATTRIBUTES = /^(.*?)[ \t]*\{((?:[ \t]*[#.][A-Za-z0-9_-]+)+)[ \t]*\}$/
+
 export interface SectionMarker {
   name: string
+  /** The section file's id, in a folder document. */
+  id: string | null
+  /** Exports show the name as a heading (a folder document's `.heading`). */
+  heading: boolean
   /** 1-based line number. */
   line: number
 }
 
+/** A marker line's name and attributes, or null if the line is not one. */
+export function parseMarker(line: string): Omit<SectionMarker, 'line'> | null {
+  const match = SECTION_MARKER.exec(line.replace(/\r$/, ''))
+  if (!match) return null
+  const attributes = MARKER_ATTRIBUTES.exec(match[1])
+  if (!attributes) return { name: match[1], id: null, heading: false }
+  const parts = attributes[2].trim().split(/\s+/)
+  const id = parts.find((part) => part.startsWith('#'))?.slice(1) ?? null
+  return { name: attributes[1], id, heading: parts.includes('.heading') }
+}
+
 /** The name in a section marker line, or null if the line is not one. */
 export function parseSectionMarker(line: string): string | null {
-  const match = SECTION_MARKER.exec(line.replace(/\r$/, ''))
-  return match ? match[1] : null
+  return parseMarker(line)?.name ?? null
 }
 
 /** The marker line for a section called `name` (an HTML comment, so it never shows in exports). */
-export function sectionMarkerLine(name: string): string {
-  return `<!-- section: ${name.replace(/\s+/g, ' ').replace(/--+/g, '–').trim()} -->`
+export function sectionMarkerLine(name: string, attributes: { id?: string | null; heading?: boolean } = {}): string {
+  const clean = name.replace(/\s+/g, ' ').replace(/--+/g, '–').replace(/[{}]/g, '').trim()
+  const parts = [attributes.id ? `#${attributes.id}` : '', attributes.heading ? '.heading' : ''].filter(Boolean)
+  return `<!-- section: ${clean}${parts.length ? ` {${parts.join(' ')}}` : ''} -->`
 }
 
 /** Section markers outside fenced code blocks and notes blocks. */
@@ -126,10 +149,18 @@ export function extractSectionMarkers(text: string): SectionMarker[] {
       return
     }
     if (fence !== null) return
-    const name = parseSectionMarker(line)
-    if (name !== null) markers.push({ name, line: index + 1 })
+    const marker = parseMarker(line)
+    if (marker !== null) markers.push({ ...marker, line: index + 1 })
   })
   return markers
+}
+
+/**
+ * Whether the text is a folder document shown as one text: its markers carry
+ * section ids. Then only markers start sections, and headings are just text.
+ */
+export function splitsAtMarkersOnly(markers: readonly Pick<SectionMarker, 'id'>[]): boolean {
+  return markers.some((marker) => marker.id !== null)
 }
 
 /** Removes section marker lines (for exporting the text). */

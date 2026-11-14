@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  blocksToCallouts, calloutsToBlocks, classifyLayerLines, convertOneFile, fileNameFor, isDocumentNote, joinFrontmatter,
-  looksLikeVerdandiDocument, newDocumentNote, NOTES_LAYER, parseDocumentNote, parseLayers, parseSectionFile, readFields,
-  setFields, splitFrontmatter, uniqueName, writeDocumentNote, writeSectionFile,
+  assembleDocument, blocksToCallouts, calloutsToBlocks, classifyLayerLines, convertOneFile, disassembleDocument, fileNameFor, isDocumentNote, joinFrontmatter,
+  looksLikeVerdandiDocument, markersToHeadings, newDocumentNote, NOTES_LAYER, parseDocumentNote, parseLayers, parseSectionFile, readFields,
+  setFields, splitFrontmatter, stableId, uniqueName, writeDocumentNote, writeSectionFile,
 } from './layers'
 
 const LAYERS = ['notes', 'outline', 'images']
@@ -207,6 +207,36 @@ describe('file names', () => {
   it('numbers names that are taken, ignoring case', () => {
     const taken = new Set(['eras'])
     expect(['Eras', 'One', 'one', 'One'].map((name) => uniqueName(name, taken))).toEqual(['Eras 2', 'One', 'one 2', 'One 3'])
+  })
+})
+
+describe('a document folder as one text', () => {
+  const sections = [
+    { id: 'a1', name: 'One', heading: true, text: 'First.\n\n::: notes\nA note.\n:::\n' },
+    { id: 'b2', name: 'Two', heading: false, text: '' },
+    { id: 'c3', name: 'Three', heading: false, text: 'Third.\n\n' },
+  ]
+
+  it('joins sections with markers and splits them back', () => {
+    const text = assembleDocument(sections)
+    expect(text).toBe('<!-- section: One {#a1 .heading} -->\nFirst.\n\n::: notes\nA note.\n:::\n<!-- section: Two {#b2} -->\n<!-- section: Three {#c3} -->\nThird.\n')
+    expect(disassembleDocument(text).map(({ id, name, heading, text: body }) => ({ id, name, heading, text: body }))).toEqual(sections)
+  })
+
+  it('turns text typed before the first marker into a section', () => {
+    expect(disassembleDocument('Typed here.\n<!-- section: One {#a1} -->\nFirst.').map((section) => [section.id, section.name, section.line]))
+      .toEqual([[null, 'Introduction', 0], ['a1', 'One', 2]])
+  })
+
+  it('exports names that are headings as headings', () => {
+    expect(markersToHeadings('<!-- section: One {#a1 .heading} -->\nFirst.\n<!-- section: Two {#b2} -->\nSecond.'))
+      .toBe('# One\nFirst.\n<!-- section: Two {#b2} -->\nSecond.')
+  })
+
+  it('makes stable ids', () => {
+    expect(stableId('file:one')).toBe(stableId('file:one'))
+    expect(stableId('file:one')).toMatch(/^s[0-9a-z]{7}$/)
+    expect(stableId('file:two')).not.toBe(stableId('file:one'))
   })
 })
 

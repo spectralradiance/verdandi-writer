@@ -4,6 +4,7 @@ import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
+import { looksLikeVerdandiDocument } from '../../shared/layers'
 import { extractHeadings, type Heading } from '../../shared/text'
 import { onDiskChange, touchesFile } from './changes'
 import type { MarkdownEditorHandle, WordInContext } from './editor/MarkdownEditor'
@@ -86,6 +87,25 @@ interface DocumentPaneProps {
   onFocus?: () => void
   onSelectWord?: (word: WordInContext) => void
   onClose?: () => void
+  /**
+   * Edit this one-file document as it is, rather than turning it into a document
+   * folder (the writer undid that conversion).
+   */
+  keepAsFile?: boolean
+  /** The one-file document `original` became the document folder `folder`. */
+  onConverted?: (folder: string, original: string) => void
+}
+
+/**
+ * How a document opens: a document folder, or a one-file document kept as it is, is
+ * edited; a one-file document that uses notes blocks or section markers becomes a
+ * document folder; any other note is only shown, with an offer to make it a document.
+ */
+type Mode = 'edit' | 'read' | 'convert'
+
+function modeOf(document: TextDocument, keepAsFile: boolean): Mode {
+  if (document.folder || document.mtimeMs === null || keepAsFile) return 'edit'
+  return looksLikeVerdandiDocument(document.text) ? 'convert' : 'read'
 }
 
 interface DiskState {
@@ -95,7 +115,7 @@ interface DiskState {
 
 export function DocumentPane({
   ref, path, live, focusMode, primary, secondaryShown, headerActions,
-  onInfo, onHeadings, onSections, onDirtyChange, onFocus, onSelectWord, onClose,
+  onInfo, onHeadings, onSections, onDirtyChange, onFocus, onSelectWord, onClose, keepAsFile = false, onConverted,
 }: DocumentPaneProps) {
   const [loaded, setLoaded] = useState<{ document: TextDocument; generation: number } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -104,6 +124,7 @@ export function DocumentPane({
   const [notice, setNotice] = useState<string | null>(null)
   const [exists, setExists] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [converting, setConverting] = useState(false)
 
   const editor = useRef<MarkdownEditorHandle>(null)
   const disk = useRef<DiskState | null>(null)
@@ -118,9 +139,9 @@ export function DocumentPane({
 
   // The parent's latest callbacks, read through a ref so that their identity
   // changing on every parent render does not re-run the file load.
-  const parent = useRef({ onInfo, onHeadings, onSections, onDirtyChange })
+  const parent = useRef({ onInfo, onHeadings, onSections, onDirtyChange, onConverted })
   useLayoutEffect(() => {
-    parent.current = { onInfo, onHeadings, onSections, onDirtyChange }
+    parent.current = { onInfo, onHeadings, onSections, onDirtyChange, onConverted }
   })
 
   const updateState = useCallback((next: SaveState) => {
@@ -135,6 +156,17 @@ export function DocumentPane({
     parent.current.onSections?.(summarizeSections(text))
   }, [])
 
+  const convert = useCallback(async () => {
+    setConverting(true)
+    try {
+      const folder = await window.verdandi.documents.convert(path)
+      parent.current.onConverted?.(folder, path)
+    } catch (error) {
+      setConverting(false)
+      setLoadError(`It could not be made into a document folder: ${errorMessage(error)}`)
+    }
+  }, [path])
+
   const applyDocument = useCallback((document: TextDocument) => {
     disk.current = { mtimeMs: document.mtimeMs, format: document.format }
     version.current = 0
@@ -145,7 +177,9 @@ export function DocumentPane({
     updateState('saved')
     setLoaded((previous) => ({ document, generation: (previous?.generation ?? 0) + 1 }))
     reportStats(document.text, document.format)
-  }, [reportStats, updateState])
+    // A one-file Verdandi document becomes a document folder as soon as it opens.
+    if (modeOf(document, keepAsFile) === 'convert') void convert()
+  }, [reportStats, updateState, keepAsFile, convert])
 
   const load = useCallback(() => window.verdandi.files.read(path).then(
     applyDocument,
@@ -207,6 +241,8 @@ export function DocumentPane({
         setExists(true)
         setSaveError(null)
         if (result.notice) setNotice(result.notice)
+        // A document folder gave new sections ids: the editor takes them unless typing went on meanwhile.
+        if (result.text !== undefined && editor.current?.getText() === text) editor.current.sync(result.text)
         const counts = splitWordCounts(text)
         parent.current.onInfo({ words: counts.output, notesWords: counts.notes, format: result.format })
         if (version.current === target) {
@@ -309,6 +345,8 @@ export function DocumentPane({
     if (window.confirm('Discard your unsaved changes and load the version on disk?')) void load()
   }
 
+  const mode = loaded ? modeOf(loaded.document, keepAsFile) : null
+
   const fileName = folderName(path)
 
   if (loadError) {
@@ -372,9 +410,17 @@ export function DocumentPane({
         </div>
       )}
 
-      {loaded ? (
+      {mode === 'read' && (
+        <div className="banner banner-info" role="status">
+          <span>This is an ordinary note, so it opens read-only. Make it a document to edit it in sections.</span>
+          <button type="button" disabled={converting} onClick={() => void convert()}>Make this a document</button>
+        </div>
+      )}
+
+      {loaded && mode !== 'convert' ? (
         <SectionGrid
           key={loaded.generation}
+          readOnly={mode === 'read'}
           ref={editor}
           path={path}
           title={fileName.replace(/\.[^.]+$/, '')}
@@ -390,7 +436,7 @@ export function DocumentPane({
           onSelectWord={onSelectWord}
         />
       ) : (
-        <div className="document-message">Opening…</div>
+        <div className="document-message">{mode === 'convert' ? 'Making a folder of sections…' : 'Opening…'}</div>
       )}
     </section>
   )

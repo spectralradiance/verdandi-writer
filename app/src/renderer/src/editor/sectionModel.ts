@@ -2,7 +2,8 @@ import type { ChangeDesc } from '@codemirror/state'
 
 import { moveSectionText, sectionLevel, splitSections } from '../../../shared/document'
 import { classifyLines, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from '../../../shared/notes'
-import { extractHeadings, parseSectionMarker, sectionMarkerLine } from '../../../shared/text'
+import { newSectionId } from '../../../shared/layers'
+import { extractHeadings, extractSectionMarkers, parseMarker, parseSectionMarker, sectionMarkerLine, splitsAtMarkersOnly } from '../../../shared/text'
 
 /**
  * The model behind the two-column editor. The file is split into sections at its
@@ -41,6 +42,13 @@ export interface ModelSection {
   title: string | null
   /** Starts at a `<!-- section: Name -->` marker rather than a heading. */
   named: boolean
+  /** In a document folder: exports show the name as a heading. */
+  heading: boolean
+}
+
+/** Whether the text is a document folder's (its markers carry section ids). */
+export function isFolderText(text: string): boolean {
+  return splitsAtMarkersOnly(extractSectionMarkers(text))
 }
 
 /** Splits a file into sections that cover every line, so joining them gives the file back. */
@@ -49,9 +57,9 @@ export function partition(text: string): ModelSection[] {
   const titled = splitSections(text).filter((section) => section.title !== null)
   const sections: ModelSection[] = []
   const first = titled[0]?.line ?? lines.length + 1
-  if (first > 1) sections.push({ title: null, named: false, text: lines.slice(0, first - 1).join('\n') })
+  if (first > 1) sections.push({ title: null, named: false, heading: false, text: lines.slice(0, first - 1).join('\n') })
   for (const section of titled) {
-    sections.push({ title: section.title, named: section.named, text: lines.slice(section.line - 1, section.endLine).join('\n') })
+    sections.push({ title: section.title, named: section.named, heading: section.heading, text: lines.slice(section.line - 1, section.endLine).join('\n') })
   }
   return sections
 }
@@ -257,7 +265,8 @@ export function renameSection(text: string, index: number, name: string): string
   const clean = name.replace(/\s+/g, ' ').trim()
   if (!clean) return null
   return replaceSection(text, index, (lines) => {
-    if (parseSectionMarker(lines[0]) !== null) return [sectionMarkerLine(clean), ...lines.slice(1)]
+    const marker = parseMarker(lines[0])
+    if (marker !== null) return [sectionMarkerLine(clean, marker), ...lines.slice(1)]
     const heading = HEADING.exec(lines[0])
     if (!heading) return null
     return [`${heading[1]}${heading[2]} ${clean}`, ...lines.slice(1)]
@@ -267,7 +276,11 @@ export function renameSection(text: string, index: number, name: string): string
 /** Shows a section's name as a heading in the text, or keeps it as a name only. */
 export function setSectionHeading(text: string, index: number, heading: boolean): string | null {
   const level = sectionLevel(extractHeadings(text))
+  const folder = isFolderText(text)
   return replaceSection(text, index, (lines) => {
+    // In a document folder the name stays a marker: whether it is a heading is the file's setting.
+    const marker = parseMarker(lines[0])
+    if (folder && marker !== null) return marker.heading === heading ? null : [sectionMarkerLine(marker.name, { ...marker, heading }), ...lines.slice(1)]
     const name = parseSectionMarker(lines[0])
     if (heading && name !== null) return [`${'#'.repeat(level)} ${name}`, ...lines.slice(1)]
     const match = HEADING.exec(lines[0])
@@ -283,7 +296,10 @@ export function setSectionHeading(text: string, index: number, heading: boolean)
 export function mergeIntoPrevious(text: string, index: number): string | null {
   if (index < 1) return null
   return replaceSection(text, index, (lines) => {
-    if (parseSectionMarker(lines[0]) !== null) {
+    const marker = parseMarker(lines[0])
+    // A document folder's section shown as a heading keeps its name as a subheading.
+    if (marker?.heading) return [`## ${marker.name}`, ...lines.slice(1)]
+    if (marker !== null) {
       let start = 1
       while (start < lines.length - 1 && lines[start].trim() === '') start += 1
       return lines.slice(start)
@@ -320,16 +336,19 @@ const trimEnd = (lines: string[]) => {
  * Null when the section would be left with nothing but its heading or name.
  */
 export function splitSection(text: string, index: number, line: number, name: string, end?: { line: number; name: string }): string | null {
+  // A document folder's new sections get ids at once, so each one is a file of its own from the first save.
+  const folder = isFolderText(text)
+  const markerLine = (value: string) => sectionMarkerLine(value, folder ? { id: newSectionId() } : {})
   return replaceSection(text, index, (lines, section) => {
     if (line < 1 || line >= lines.length) return null
     const before = trimEnd(lines.slice(0, line))
     const ownLine = section.title === null ? 0 : 1
     if (!before.slice(ownLine).some((value) => value.trim() !== '')) return null
-    const split = [...before, '', sectionMarkerLine(name)]
+    const split = [...before, '', markerLine(name)]
     if (!end || end.line <= line || end.line >= lines.length || !lines.slice(end.line).some((value) => value.trim() !== '')) {
       return [...split, ...lines.slice(line)]
     }
-    return [...split, ...trimEnd(lines.slice(line, end.line)), '', sectionMarkerLine(end.name), ...lines.slice(end.line)]
+    return [...split, ...trimEnd(lines.slice(line, end.line)), '', markerLine(end.name), ...lines.slice(end.line)]
   })
 }
 

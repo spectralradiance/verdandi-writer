@@ -380,7 +380,15 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
 **Progress (2026-11-14):**
 - **Done:** the disk format in `shared/layers.ts`. It covers frontmatter edits that keep comments and field order, declared layers, callouts on disk ↔ `::: layer` blocks in the working text, section files, the document note, and the one-file → folder conversion with its file names.
 - **Also done:** `main/folderDocument.ts` converts a file on disk and undoes the conversion.
-- **Not yet wired into the app:** opening a folder document, converting on open, and the read-only mode for other notes all wait for steps 3–5.
+- **Done, steps 2–3 (for the notes layer):** document folders open, save and show in the sidebar.
+  - **How they're shown:** for now the editor shows a document folder as one text, its sections joined with markers that carry each file's id and heading setting (`<!-- section: Name {#7f3a .heading} -->`). Markers with ids make only markers start sections, so a heading in a section's text never splits it.
+  - **Saving** matches sections to files by id and writes only the changed ones. It renames files whose section was renamed, makes files for new sections, trashes the files of removed ones, and rewrites the document note when the order or the names change. Any change to one of the document's files counts as a change to the document, which is how conflicts are found.
+  - **What keeps working unchanged:** rows, section menus, the outline, search (a document folder is indexed as one document), stats, export (`.heading` names become `#` headings), History and AI.
+  - **Conversion and read-only:** one-file documents with notes blocks or section markers convert on open, with Undo. Other notes open read-only with "Make this a document", and New document makes a document folder.
+- **Next:**
+  - **Step 4:** layers other than notes in the rows and the layer views.
+  - **Saved views.**
+  - **Section files added or renamed in Obsidian:** a stale embed is dropped from the order the next time Verdandi saves. Recovering it by its `id` is not built yet.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
 
 1. **Model:**

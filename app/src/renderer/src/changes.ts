@@ -28,6 +28,7 @@ export function touchesFolder(paths: string[], folder: string): boolean {
   return paths.some((path) => samePath(path, folder) || samePath(dirname(path), folder))
 }
 
+/** Whether a batch of changed paths affects the document at `file`: the file, or any file in a document folder. */
 export function touchesFile(paths: string[], file: string): boolean {
-  return paths.some((path) => samePath(path, file) || samePath(path, dirname(file)))
+  return paths.some((path) => samePath(path, file) || samePath(path, dirname(file)) || samePath(dirname(path), file))
 }

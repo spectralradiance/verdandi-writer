@@ -1,13 +1,334 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import { convertOneFile, newSectionId } from '../shared/layers'
-import { readTextDocument } from './fileService'
+import type { TextDocument, TextFormat, WriteRequest, WriteResult } from '../shared/ipc'
+import {
+  assembleSection, convertOneFile, type DisassembledSection, disassembleDocument, fileNameFor, INTRODUCTION,
+  joinFrontmatter, newDocumentNote, newSectionId, NOTES_LAYER, parseDocumentNote, parseSectionFile, type SectionFile, setFields,
+  stableId, tidySectionText, uniqueName, writeDocumentNote, writeSectionFile,
+} from '../shared/layers'
+import { sectionMarkerLine } from '../shared/text'
+import { type BackupStore, documentNoteOf, readTextDocument, writeTextDocument } from './fileService'
 import { encodeText } from './textFile'
+
+// Folder documents (PLAN.md §3b): a folder with a document note named after it and
+// one Markdown file per section. The editor sees one text (see `assembleDocument`);
+// saving splits it back and writes only the files whose section changed.
 
 /** Where a converted document keeps the one-file original, inside its folder. */
 export const ORIGINAL_DIR = path.join('.verdandi', 'original')
+
+const exists = (target: string) => stat(target).then(() => true, () => false)
+
+// ---------------------------------------------------------------------------
+// Reading
+
+interface LoadedSection {
+  id: string
+  /** The file's name without `.md`. */
+  base: string
+  file: string
+  parsed: SectionFile
+  raw: string
+  format: TextFormat
+  /** The section's name: the title in its frontmatter, or its file name. */
+  name: string
+  /** The section's lines in the editor's text, to tell whether it changed. */
+  segment: string
+}
+
+interface LoadedFolder {
+  folder: string
+  note: TextDocument
+  layers: string[]
+  sections: LoadedSection[]
+  /** Stands in for an mtime: changes whenever any of the document's files does. */
+  token: number
+  size: number
+  text: string
+}
+
+/** A number that changes when any of `parts` does (FNV-1a), never zero. */
+function tokenOf(parts: readonly string[]): number {
+  let hash = 0x811c9dc5
+  for (const char of parts.join('\u0000')) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash || 1
+}
+
+async function loadFolder(folder: string): Promise<LoadedFolder> {
+  const noteFile = await documentNoteOf(folder)
+  if (!noteFile) throw new Error(`${path.basename(folder)} is not a document folder.`)
+  const note = await readTextDocument(noteFile)
+  const parsed = parseDocumentNote(note.text)
+  const layers = parsed.layers.map((layer) => layer.name)
+  const names = new Map((await readdir(folder)).map((name) => [name.toLowerCase(), name]))
+  const sections: LoadedSection[] = []
+  const seen = new Set<string>()
+  const ids = new Set<string>()
+  for (const target of parsed.sections) {
+    // Obsidian matches links without regard to case.
+    const actual = names.get(`${target}.md`.toLowerCase())
+    if (!actual || target.includes('/') || target.includes('\\')) continue
+    const file = path.join(folder, actual)
+    if (seen.has(file.toLowerCase()) || file.toLowerCase() === noteFile.toLowerCase()) continue
+    seen.add(file.toLowerCase())
+    const document = await readTextDocument(file).catch(() => null)
+    if (!document) continue
+    const base = actual.replace(/\.md$/i, '')
+    const sectionFile = parseSectionFile(document.text, layers)
+    // A file without an id (made in Obsidian) gets one from its name, the same every time it is read.
+    let id = sectionFile.id ?? stableId(`file:${base.toLowerCase()}`)
+    if (ids.has(id)) id = stableId(`copy:${base.toLowerCase()}`)
+    ids.add(id)
+    const name = sectionFile.title ?? base
+    const segment = assembleSection({ id, name, heading: sectionFile.heading, text: sectionFile.text })
+    sections.push({ id, base, file, parsed: sectionFile, raw: document.text, format: document.format, name, segment })
+  }
+  const stamps = await Promise.all([noteFile, ...sections.map((section) => section.file)].map(async (file) => {
+    const info = await stat(file).catch(() => null)
+    return { file, mtime: info?.mtimeMs ?? 0, size: info?.size ?? 0 }
+  }))
+  return {
+    folder,
+    note,
+    layers,
+    sections,
+    token: tokenOf(stamps.map((stamp) => `${stamp.file}:${stamp.mtime}`)),
+    size: stamps.reduce((sum, stamp) => sum + stamp.size, 0),
+    text: sections.map((section) => section.segment).join('\n'),
+  }
+}
+
+/** A document folder as one text, for the editor. */
+export async function readFolderDocument(folder: string): Promise<TextDocument> {
+  const loaded = await loadFolder(folder)
+  return { path: folder, text: loaded.text, format: loaded.note.format, mtimeMs: loaded.token, size: loaded.size, folder: true }
+}
+
+/** Reads a document: a text file, or a document folder as one text. */
+export async function readDocument(target: string, allowMissing = false): Promise<TextDocument> {
+  const info = await stat(target).catch(() => null)
+  if (info?.isDirectory() && (await documentNoteOf(target))) return readFolderDocument(target)
+  return readTextDocument(target, allowMissing)
+}
+
+/** Whether `target` is a document folder. */
+export async function isFolderDocument(target: string): Promise<boolean> {
+  const info = await stat(target).catch(() => null)
+  return Boolean(info?.isDirectory() && (await documentNoteOf(target)))
+}
+
+// ---------------------------------------------------------------------------
+// Writing
+
+interface Planned {
+  section: DisassembledSection
+  existing: LoadedSection | undefined
+  id: string
+  base: string
+}
+
+/**
+ * Saves the editor's text of a document folder. Sections are matched to files by
+ * the ids in their markers: a section whose lines are unchanged is not touched; a
+ * changed one is written (and its file renamed if its name changed); a new one gets
+ * a file; a section that is gone has its file moved to the trash. The document note
+ * is rewritten only if the order or the file names changed.
+ *
+ * `text` in the result is the editor's text with ids given to sections that had
+ * none, when there were any.
+ */
+export async function writeFolderDocument(
+  folder: string,
+  request: WriteRequest,
+  backups: BackupStore,
+  trash: (target: string) => Promise<void>,
+): Promise<WriteResult & { text?: string }> {
+  const current = await loadFolder(folder)
+  if (!request.force && request.expectedMtimeMs !== current.token) {
+    return { ok: false, reason: 'conflict', diskMtimeMs: current.token }
+  }
+  const wanted = disassembleDocument(request.text)
+  const byId = new Map(current.sections.map((section) => [section.id, section]))
+
+  // Ids: a section keeps its file; a copied marker or a new section gets an id of its
+  // own, made from its name so that saving again before the editor has it gives the same one.
+  const used = new Set<string>()
+  const occurrences = new Map<string, number>()
+  const plans: Omit<Planned, 'base'>[] = wanted.map((section) => {
+    let existing = section.id ? byId.get(section.id) : undefined
+    if (existing && used.has(existing.id)) existing = undefined
+    let id = existing?.id ?? section.id
+    if (!id || used.has(id)) {
+      const count = (occurrences.get(section.name) ?? 0) + 1
+      occurrences.set(section.name, count)
+      id = stableId(`new:${section.name}:${count}`)
+      while (used.has(id)) id = stableId(`${id}+`)
+    }
+    used.add(id)
+    return { section, existing, id }
+  })
+
+  // File names: a section whose name did not change keeps its file's name.
+  const noteBase = path.basename(current.note.path).replace(/\.md$/i, '')
+  const ownFiles = new Set(current.sections.map((section) => `${section.base}.md`.toLowerCase()))
+  const taken = new Set([noteBase.toLowerCase()])
+  for (const name of await readdir(folder)) {
+    if (!ownFiles.has(name.toLowerCase()) && /\.md$/i.test(name)) taken.add(name.replace(/\.md$/i, '').toLowerCase())
+  }
+  const kept = plans.map((plan) => (plan.existing && plan.existing.name === plan.section.name ? plan.existing.base : null))
+  for (const base of kept) if (base) taken.add(base.toLowerCase())
+  const planned: Planned[] = plans.map((plan, index) => ({ ...plan, base: kept[index] ?? uniqueName(fileNameFor(plan.section.name), taken) }))
+
+  const removed = current.sections.filter((section) => !used.has(section.id))
+  for (const section of removed) {
+    await backups.ensureBackup(section.file)
+    await trash(section.file)
+  }
+
+  // Renames go through temporary names, so two sections can swap names.
+  const renames = planned.filter((plan) => plan.existing && plan.existing.base !== plan.base)
+  const parked = new Map<Planned, string>()
+  for (const plan of renames) {
+    const temporary = path.join(folder, `.${plan.base}.verdandi-${randomBytes(4).toString('hex')}.tmp`)
+    await backups.ensureBackup(plan.existing!.file)
+    await rename(plan.existing!.file, temporary)
+    parked.set(plan, temporary)
+  }
+  for (const [plan, temporary] of parked) await rename(temporary, path.join(folder, `${plan.base}.md`))
+
+  for (const plan of planned) {
+    const { section, existing } = plan
+    const target = path.join(folder, `${plan.base}.md`)
+    const renamed = existing !== undefined && existing.base !== plan.base
+    const idChanged = existing === undefined || existing.parsed.id !== plan.id
+    if (existing && !renamed && section.segment === existing.segment) continue
+    const yaml = setFields(existing?.parsed.yaml ?? null, {
+      ...(idChanged ? { id: plan.id } : {}),
+      title: section.name === plan.base ? undefined : section.name,
+      heading: section.heading ? undefined : false,
+    })
+    // Only renamed, or only its heading switched: the text stays exactly as it was.
+    const sameText = existing !== undefined && withoutFinalBreak(existing.parsed.text) === withoutFinalBreak(section.text)
+    const text = sameText ? existing.parsed.text : tidySectionText(section.text)
+    const content = writeSectionFile({ yaml, text }, current.layers)
+    if (existing && content === existing.raw) continue
+    const format = existing?.format ?? current.note.format
+    const result = await writeTextDocument(target, { path: target, text: content, format, expectedMtimeMs: null, force: true }, backups)
+    if (!result.ok) throw new Error(`Couldn’t write ${plan.base}.md.`)
+  }
+
+  const note = writeDocumentNote(current.note.text, { sections: planned.map((plan) => plan.base) })
+  if (note !== current.note.text) {
+    const result = await writeTextDocument(current.note.path, { path: current.note.path, text: note, format: current.note.format, expectedMtimeMs: null, force: true }, backups)
+    if (!result.ok) throw new Error(`Couldn’t write ${path.basename(current.note.path)}.`)
+  }
+
+  const saved = await loadFolder(folder)
+  const result: WriteResult & { text?: string } = { ok: true, mtimeMs: saved.token, size: saved.size, format: saved.note.format, notice: null }
+  const fresh = planned.filter((plan) => plan.section.id !== plan.id)
+  if (fresh.length > 0) result.text = withIds(request.text, planned)
+  return result
+}
+
+const withoutFinalBreak = (text: string) => (text.endsWith('\n') ? text.slice(0, -1) : text)
+
+/** The editor's text with each section's marker carrying its id. */
+function withIds(text: string, planned: readonly Planned[]): string {
+  const lines = text.split('\n')
+  let preamble: string | null = null
+  for (const { section, id } of planned) {
+    const marker = sectionMarkerLine(section.name, { id, heading: section.heading })
+    if (section.line > 0) lines[section.line - 1] = marker
+    else preamble = marker // text before the first marker gets a marker of its own
+  }
+  if (preamble !== null) lines.unshift(preamble)
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Creating, renaming, deleting
+
+function introduction(id: string): string {
+  return joinFrontmatter(setFields(null, { id, heading: false }), '')
+}
+
+/** Makes a new document folder with one empty section and returns its path. */
+export async function createFolderDocument(parent: string, name: string, newId: () => string = newSectionId): Promise<string> {
+  const folder = path.join(parent, name)
+  if (await exists(folder)) throw new Error(`“${name}” already exists here.`)
+  if (await exists(`${folder}.md`)) throw new Error(`“${name}.md” already exists here.`)
+  const format = { encoding: 'utf-8', eol: '\n', mixedEol: false } as const
+  const section = name.toLowerCase() === INTRODUCTION.toLowerCase() ? `${INTRODUCTION} 2` : INTRODUCTION
+  await mkdir(folder)
+  try {
+    await writeFile(path.join(folder, `${name}.md`), encodeText(newDocumentNote([NOTES_LAYER], [section]), format).bytes, { flag: 'wx' })
+    await writeFile(path.join(folder, `${section}.md`), encodeText(introduction(newId()), format).bytes, { flag: 'wx' })
+  } catch (error) {
+    await rm(folder, { recursive: true, force: true })
+    throw error
+  }
+  return folder
+}
+
+/** Renames a document folder and its document note together, and returns the new path. */
+export async function renameFolderDocument(folder: string, name: string): Promise<string> {
+  const target = path.join(path.dirname(folder), name)
+  if (path.basename(folder) === name) return folder
+  if (target.toLowerCase() !== folder.toLowerCase() && (await exists(target))) throw new Error(`“${name}” already exists here.`)
+  const note = await documentNoteOf(folder)
+  if (!note) throw new Error(`${path.basename(folder)} is not a document folder.`)
+  const renamedNote = path.join(folder, `${name}.md`)
+  if (renamedNote.toLowerCase() !== note.toLowerCase() && (await exists(renamedNote))) {
+    throw new Error(`The folder already has a file called “${name}.md”.`)
+  }
+  await rename(note, renamedNote)
+  try {
+    await rename(folder, target)
+  } catch (error) {
+    await rename(renamedNote, note).catch(() => {})
+    throw error
+  }
+  return target
+}
+
+export interface TrashedFolder {
+  path: string
+  files: { relative: string; bytes: Buffer }[]
+}
+
+async function collect(folder: string, relative = ''): Promise<TrashedFolder['files']> {
+  const files: TrashedFolder['files'] = []
+  for (const entry of await readdir(path.join(folder, relative), { withFileTypes: true })) {
+    const inner = path.join(relative, entry.name)
+    if (entry.isDirectory()) files.push(...(await collect(folder, inner)))
+    else if (entry.isFile()) files.push({ relative: inner, bytes: await readFile(path.join(folder, inner)) })
+  }
+  return files
+}
+
+/** Moves a document folder to the trash, keeping its files so the deletion can be undone. */
+export async function trashFolderDocument(folder: string, trash: (target: string) => Promise<void>): Promise<TrashedFolder> {
+  const files = await collect(folder)
+  await trash(folder)
+  return { path: folder, files }
+}
+
+export async function restoreFolderDocument(entry: TrashedFolder): Promise<void> {
+  if (await exists(entry.path)) throw new Error(`“${path.basename(entry.path)}” exists again, so nothing was restored.`)
+  for (const file of entry.files) {
+    const target = path.join(entry.path, file.relative)
+    await mkdir(path.dirname(target), { recursive: true })
+    await writeFile(target, file.bytes, { flag: 'wx' })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Converting a one-file document
 
 export interface ConvertedFolder {
   /** The new document folder. */
@@ -17,8 +338,6 @@ export interface ConvertedFolder {
   /** Where the original file now is. */
   original: string
 }
-
-const exists = (target: string) => stat(target).then(() => true, () => false)
 
 /**
  * Turns a one-file document into a document folder next to it (PLAN.md §3b): a
@@ -86,3 +405,4 @@ export async function undoConversion(folder: string, trash: (target: string) => 
   await trash(parked)
   return file
 }
+

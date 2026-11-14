@@ -4,7 +4,8 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite'
 
 import { MATCH_END, MATCH_START, type SearchHit, type SearchStatus } from '../shared/ipc'
 import { STOPWORDS } from '../shared/readability'
-import { isInside, isTextFileName, readTextDocument } from './fileService'
+import { isInside, isTextFileName } from './fileService'
+import { isFolderDocument, readDocument } from './folderDocument'
 
 export { MATCH_END, MATCH_START }
 
@@ -111,6 +112,17 @@ export class SearchIndex {
   }
 
   async updateFile(file: string, roots: string[]): Promise<void> {
+    // A document folder is indexed as one document: a change to any of its files updates it.
+    const folder = (await isFolderDocument(file)) ? file : (await isFolderDocument(path.dirname(file))) ? path.dirname(file) : null
+    if (folder) {
+      if (folder !== file) this.removeFile(file)
+      const document = roots.some((root) => isInside(root, folder)) && !isHiddenPath(folder, roots)
+        ? await readDocument(folder).catch(() => null)
+        : null
+      if (document) await this.indexFile(folder, document.mtimeMs ?? 0, document.size)
+      else this.removeFile(folder)
+      return
+    }
     const inside = roots.some((root) => isInside(root, file))
     const info = await stat(file).catch(() => null)
     if (!inside || !info || !info.isFile() || !isTextFileName(path.basename(file)) || isHiddenPath(file, roots)) {
@@ -178,7 +190,7 @@ export class SearchIndex {
     let chunks: Chunk[] = []
     if (size <= MAX_FILE_BYTES) {
       try {
-        chunks = chunkText((await readTextDocument(file)).text)
+        chunks = chunkText((await readDocument(file)).text)
       } catch {
         chunks = [] // binary or unreadable: remember it so it is not retried until it changes
       }
@@ -213,7 +225,12 @@ async function walk(directory: string, found: Map<string, { mtime: number; size:
     if (entry.name.startsWith('.')) continue
     const full = path.join(directory, entry.name)
     if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name)) await walk(full, found)
+      if (await isFolderDocument(full)) {
+        const document = await readDocument(full).catch(() => null)
+        if (document) found.set(full, { mtime: document.mtimeMs ?? 0, size: document.size })
+      } else if (!SKIPPED_DIRECTORIES.has(entry.name)) {
+        await walk(full, found)
+      }
     } else if (entry.isFile() && isTextFileName(entry.name)) {
       const info = await stat(full).catch(() => null)
       if (info) found.set(full, { mtime: info.mtimeMs, size: info.size })

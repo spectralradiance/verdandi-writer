@@ -3,13 +3,25 @@ import { copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile
 import path from 'node:path'
 
 import type { TextDocument, WriteRequest, WriteResult } from '../shared/ipc'
+import { isDocumentNote } from '../shared/layers'
 import { decodeText, encodeText } from './textFile'
 
 type PathApi = typeof path.win32
 
 export interface FolderEntryName {
   name: string
-  kind: 'file' | 'dir'
+  /** A `document` is a document folder (PLAN.md §3b), listed like a file. */
+  kind: 'file' | 'dir' | 'document'
+}
+
+/**
+ * The document note of a document folder: the note named after the folder whose
+ * frontmatter has `verdandi: document`. Null when `folder` is an ordinary folder.
+ */
+export async function documentNoteOf(folder: string): Promise<string | null> {
+  const note = path.join(folder, `${path.basename(folder)}.md`)
+  const text = await readFile(note, 'utf8').catch(() => null)
+  return text !== null && isDocumentNote(text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')) ? note : null
 }
 
 const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.text'])
@@ -115,13 +127,15 @@ export async function listDirectory(directory: string): Promise<FolderEntryName[
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue
     if (entry.isDirectory() && !SKIPPED_DIRECTORIES.has(entry.name)) {
-      result.push({ name: entry.name, kind: 'dir' })
+      const isDocument = (await documentNoteOf(path.join(directory, entry.name))) !== null
+      result.push({ name: entry.name, kind: isDocument ? 'document' : 'dir' })
     } else if (entry.isFile() && isTextFileName(entry.name)) {
       result.push({ name: entry.name, kind: 'file' })
     }
   }
-  return result.sort((left, right) =>
-    left.kind === right.kind ? compareNames(left.name, right.name) : left.kind === 'dir' ? -1 : 1)
+  // Folders first; documents, whether files or document folders, sort together after them.
+  const rank = (entry: FolderEntryName) => (entry.kind === 'dir' ? 0 : 1)
+  return result.sort((left, right) => rank(left) - rank(right) || compareNames(left.name, right.name))
 }
 
 const NEW_FILE_FORMAT = { encoding: 'utf-8', eol: '\n', mixedEol: false } as const
