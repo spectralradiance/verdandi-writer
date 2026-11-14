@@ -77,7 +77,7 @@ function NameInput({ initial, placeholder, depth, onSubmit, onCancel }: {
 /** A file's `#` sections, read from disk and kept current while it is expanded. */
 function useFileSections(path: string, enabled: boolean): SectionSummary[] {
   const [sections, setSections] = useState<SectionSummary[]>([])
-  const load = useCallback(() => window.ogma.files.read(path, { allowMissing: true }).then(
+  const load = useCallback(() => window.verdandi.files.read(path, { allowMissing: true }).then(
     (document) => setSections(document.mtimeMs === null ? [] : summarizeSections(document.text).filter((section) => section.title !== null)),
     () => setSections([]),
   ), [path])
@@ -208,7 +208,7 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
   const [editing, setEditing] = useState<Editing>(null)
   const [renaming, setRenaming] = useState(false)
 
-  const load = useCallback(() => window.ogma.folders.read(path).then(
+  const load = useCallback(() => window.verdandi.folders.read(path).then(
     (next) => {
       setListing(next)
       setError(null)
@@ -234,7 +234,7 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
   const createDocument = (name: string) => {
     setEditing(null)
     const file = joinPath(path, /\.(md|markdown|txt)$/i.test(name) ? name : `${name}.md`)
-    window.ogma.files.write({
+    window.verdandi.files.write({
       path: file,
       text: '',
       format: { encoding: 'utf-8', eol: '\n', mixedEol: false },
@@ -249,7 +249,7 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
   }
   const createFolder = (name: string) => {
     setEditing(null)
-    window.ogma.folders.create(path, name).then(() => load(), (reason: unknown) => window.alert(errorMessage(reason)))
+    window.verdandi.folders.create(path, name).then(() => load(), (reason: unknown) => window.alert(errorMessage(reason)))
   }
 
   const empty = listing && listing.folders.length === 0 && listing.files.length === 0

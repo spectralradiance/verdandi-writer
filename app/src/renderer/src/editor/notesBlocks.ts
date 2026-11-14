@@ -24,7 +24,7 @@ export const notesView = Facet.define<NotesView, NotesView>({ combine: (values) 
 export const notesMarkersCollapse = Facet.define<boolean, boolean>({ combine: (values) => values.some(Boolean) })
 
 /** Fired on the editor's element when a command needs the notes view (adding notes from the output view). */
-export const SHOW_NOTES_EVENT = 'ogma:show-notes'
+export const SHOW_NOTES_EVENT = 'verdandi:show-notes'
 
 interface Block {
   /** 1-based line numbers; `close` equals the last line when the block is never closed. */

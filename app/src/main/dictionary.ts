@@ -4,7 +4,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import type { DictionaryEntry, DictionarySearchResult, DictionarySense } from '../shared/ipc'
 
 /**
- * Read-only access to the Wiktionary database built by ogma's
+ * Read-only access to the Wiktionary database built by the prototype's
  * setup-wiktionary script (entries + entries_fts). Uses Node's built-in
  * SQLite, so there is no native module to rebuild for Electron.
  */

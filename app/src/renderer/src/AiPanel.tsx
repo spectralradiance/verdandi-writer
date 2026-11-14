@@ -124,7 +124,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
   // Draft runs still streaming, by run id: where their result goes once done.
   const drafts = useRef(new Map<string, SectionMaterial>())
 
-  const refreshSettings = useCallback(() => window.ogma.ai.settings().then(setSettings), [])
+  const refreshSettings = useCallback(() => window.verdandi.ai.settings().then(setSettings), [])
 
   useEffect(() => {
     void refreshSettings()
@@ -149,7 +149,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
   })
 
   // Events can arrive before run() resolves with the id, so every run's events are kept.
-  useEffect(() => window.ogma.ai.onEvent((runId, event) => {
+  useEffect(() => window.verdandi.ai.onEvent((runId, event) => {
     const events = log.current.get(runId) ?? []
     events.push(event)
     log.current.set(runId, events)
@@ -162,7 +162,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
   const start = async (task: AiTask, variables: Record<string, string>, extra: Partial<RunState>) => {
     setMessage(null)
     try {
-      const id = await window.ogma.ai.run({ task, variables, profileId: profileId || undefined })
+      const id = await window.verdandi.ai.run({ task, variables, profileId: profileId || undefined })
       current.current = id
       const initial: RunState = { id, task, status: 'running', text: '', start: null, notices: [], error: null, usage: null, ...extra }
       const state = (log.current.get(id) ?? []).reduce(reduce, initial)
@@ -237,7 +237,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
 
   const setMode = (mode: AiMode) => {
     if (!settings) return
-    void window.ogma.ai.saveConfig({ ...settings.config, mode }).then(setSettings)
+    void window.verdandi.ai.saveConfig({ ...settings.config, mode }).then(setSettings)
   }
 
   const configured = (providerId: string) => providers.find((provider) => provider.id === providerId)?.configured ?? false
@@ -321,7 +321,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
             <section className="ai-result">
               <div className="ai-provenance">
                 {run.start ? provenance : running ? 'Starting…' : ''}
-                {running && <button type="button" className="link-button" onClick={() => void window.ogma.ai.cancel(run.id)}>Cancel</button>}
+                {running && <button type="button" className="link-button" onClick={() => void window.verdandi.ai.cancel(run.id)}>Cancel</button>}
               </div>
               {run.start && run.start.skipped.length > 0 && (
                 <p className="lexical-hint" title={run.start.skipped.join('\n')}>Skipped: {run.start.skipped.map((entry) => entry.split(':')[0]).join(', ')}</p>

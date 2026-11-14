@@ -13,7 +13,7 @@ export interface Outline {
 }
 
 async function loadOutline(path: string): Promise<Outline> {
-  const document = await window.ogma.files.read(path, { allowMissing: true }).catch(() => null)
+  const document = await window.verdandi.files.read(path, { allowMissing: true }).catch(() => null)
   return { title: folderName(path), path, sections: document && document.mtimeMs !== null ? summarizeSections(document.text) : [] }
 }
 

@@ -1,6 +1,6 @@
-# Verdandi Writer (Ogma)
+# Verdandi Writer
 
-A Markdown editor for writing, vocabulary and linguistic research. The app still calls itself Ogma; the rename to Verdandi is planned. See [PLAN.md](PLAN.md) for the design and roadmap.
+A Markdown editor for writing, vocabulary and linguistic research. See [PLAN.md](PLAN.md) for the design and roadmap.
 
 Verdandi is one of three Norn apps: **Urdr Reader** is for reading (highlights from it land in your notes) and **Skuldr Social** for publishing (finished drafts go there as pages or stories).
 
@@ -67,7 +67,7 @@ The sidebar shows the workspace folders with their subfolders and documents. To 
 
 ## Dictionary
 
-The Words panel (Ctrl+D) reads a local `wiktionary.db`. If none is found, click **Download Wiktionary** in the panel: it downloads the English Wiktionary extract from kaikki.org (about 500 MB compressed), builds the database in `%APPDATA%\Ogma\wiktionary.db` (roughly 1 GB) and starts using it. You can cancel at any time. **Choose an existing wiktionary.db…** points the app at one you already have.
+The Words panel (Ctrl+D) reads a local `wiktionary.db`. If none is found, click **Download Wiktionary** in the panel: it downloads the English Wiktionary extract from kaikki.org (about 500 MB compressed), builds the database in `%APPDATA%\Verdandi Writer\wiktionary.db` (roughly 1 GB) and starts using it. You can cancel at any time. **Choose an existing wiktionary.db…** points the app at one you already have.
 
 ## Appearance
 
@@ -97,13 +97,13 @@ Set up providers under **⚙ AI settings**:
 
 The local model needs PyTorch and the transformers stack: run `.\scripts\setup-sidecar.ps1` without `-NoTorch`. The first local run downloads the model (Qwen 2.5 7B by default, several GB) and needs an NVIDIA GPU; it loads in 4-bit and unloads after 10 idle minutes.
 
-Every run is logged (task, model, token usage, input hash, output) to `%APPDATA%\Ogma\ai-history\<month>.jsonl`.
+Every run is logged (task, model, token usage, input hash, output) to `%APPDATA%\Verdandi Writer\ai-history\<month>.jsonl`.
 
 ## Finding, exporting and tracking
 
 - **Search** (sidebar tab, Ctrl+Shift+F) looks through every text file in the workspace folders. The index is built the first time you open Search and then kept current as files change. *Related to the current passage* lists paragraphs elsewhere that share the focused passage's key words.
 - **Export** (Settings → Export, Ctrl+,) writes the open document's text without its notes, or only its notes, as PDF, HTML or Markdown.
-- **History** (⟲ on any editor) lists earlier versions of that file — saved automatically at most every 10 minutes while you edit, plus snapshots you take and a "Before AI" version whenever the AI suggests changes — with a diff against the current text and Restore. Versions are kept in `%APPDATA%\Ogma\snapshots`, never in your folders.
+- **History** (⟲ on any editor) lists earlier versions of that file — saved automatically at most every 10 minutes while you edit, plus snapshots you take and a "Before AI" version whenever the AI suggests changes — with a diff against the current text and Restore. Versions are kept in `%APPDATA%\Verdandi Writer\snapshots`, never in your folders.
 - **Stats** (chart button in the document header) shows text and notes word counts per section, a word goal with progress, and words written per day; today's net count is in the status bar.
 
 ## Editing safety
@@ -112,12 +112,12 @@ Files are edited in place, so saving is careful:
 
 - The encoding (UTF-8, UTF-8 BOM, UTF-16, Windows-1252) and line endings are detected on open and restored on save. Unchanged files round-trip byte for byte. If you type a character Windows-1252 can't store, the file is saved as UTF-8 and a notice says so.
 - Saves are atomic (temp file + rename) and autosave runs 1.2 s after you stop typing, on blur, when switching files and on close.
-- Before Ogma first overwrites a file in a session, it copies the original to `%APPDATA%\Ogma\backups\<session>\`. Backups older than 30 days are pruned.
-- If the file changed on disk since it was opened, Ogma stops and asks: load the disk version, or keep yours.
+- Before Verdandi Writer first overwrites a file in a session, it copies the original to `%APPDATA%\Verdandi Writer\backups\<session>\`. Backups older than 30 days are pruned.
+- If the file changed on disk since it was opened, Verdandi Writer stops and asks: load the disk version, or keep yours.
 
-Set `OGMA_USER_DATA` to a folder to run against a throwaway profile (settings, backups) instead of your real one.
+Set `VERDANDI_USER_DATA` to a folder to run against a throwaway profile (settings, backups) instead of your real one.
 
-Ogma uses its own `%APPDATA%\Ogma` profile. Existing Oisín data is left untouched; set `OGMA_USER_DATA` to the old profile folder to keep using it. App-specific environment variables now use the `OGMA_` prefix.
+The app keeps its settings, keys, history and dictionary in `%APPDATA%\Verdandi Writer`. On first launch it moves the profile over from `%APPDATA%\Ogma`, the folder it used before the rename, and points saved paths at the new folder. App-specific environment variables use the `VERDANDI_` prefix.
 
 ## Checks
 
@@ -132,7 +132,7 @@ cd sidecar; .\.venv\Scripts\python.exe -m pytest -q
 - Every sidecar route requires the token. The renderer never talks to the sidecar directly; it goes through the main process over IPC.
 - The sidecar is given the app's process id and exits when the app does, so it cannot outlive the app, even after a crash.
 - If the sidecar dies or fails three health checks, the app restarts it with backoff, up to three attempts, then shows the error and logs.
-- `OGMA_PYTHON` and `OGMA_SIDECAR_DIR` override the Python and sidecar locations.
+- `VERDANDI_PYTHON` and `VERDANDI_SIDECAR_DIR` override the Python and sidecar locations.
 
 ## License
 

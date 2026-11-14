@@ -28,7 +28,7 @@ describe('settings', () => {
   })
 
   it('persists updates and preserves a corrupt file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ogma-settings-'))
+    const dir = mkdtempSync(join(tmpdir(), 'verdandi-settings-'))
     const path = join(dir, 'settings.json')
 
     new SettingsStore(path).update({ workspaceRoots: ['D:\\writing'] })

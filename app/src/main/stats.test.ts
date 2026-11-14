@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { localDay, WritingStats } from './stats'
 
 async function statsFile() {
-  return path.join(await mkdtemp(path.join(tmpdir(), 'ogma-stats-')), 'stats.json')
+  return path.join(await mkdtemp(path.join(tmpdir(), 'verdandi-stats-')), 'stats.json')
 }
 
 describe('localDay', () => {
@@ -36,7 +36,7 @@ describe('WritingStats', () => {
   })
 
   it('reports per-section counts for a document, with its goal', async () => {
-    const document = path.join(await mkdtemp(path.join(tmpdir(), 'ogma-stats-doc-')), 'Night Sky.md')
+    const document = path.join(await mkdtemp(path.join(tmpdir(), 'verdandi-stats-doc-')), 'Night Sky.md')
     await writeFile(document, '# first\n\ntwo words\n\n::: notes\nfour words of notes\n:::\n\n# second\n\n::: notes\nx\n:::\n')
     const stats = new WritingStats(await statsFile())
     stats.setGoal(document, 3000)

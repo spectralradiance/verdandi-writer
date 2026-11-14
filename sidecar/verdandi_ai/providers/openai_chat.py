@@ -178,8 +178,8 @@ def compat_provider(env: Mapping[str, str]) -> OpenAIChatProvider:
         env,
         provider_id="openai_compat",
         label="OpenAI-compatible",
-        key_env="OGMA_COMPAT_API_KEY",
-        base_url_env="OGMA_COMPAT_BASE_URL",
+        key_env="VERDANDI_COMPAT_API_KEY",
+        base_url_env="VERDANDI_COMPAT_BASE_URL",
         require_base_url=True,
         token_parameter="max_tokens",
     )

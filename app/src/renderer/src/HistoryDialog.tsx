@@ -32,18 +32,18 @@ export function HistoryDialog({ path, current, onRestore, onClose }: HistoryDial
   const [message, setMessage] = useState<string | null>(null)
   const [now] = useState(current)
 
-  const refresh = useCallback(() => window.ogma.history.list(path).then(setEntries, (reason: unknown) => setMessage(errorMessage(reason))), [path])
+  const refresh = useCallback(() => window.verdandi.history.list(path).then(setEntries, (reason: unknown) => setMessage(errorMessage(reason))), [path])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
   const choose = (id: string) => {
-    window.ogma.history.read(path, id).then((text) => setSelected({ id, text }), (reason: unknown) => setMessage(errorMessage(reason)))
+    window.verdandi.history.read(path, id).then((text) => setSelected({ id, text }), (reason: unknown) => setMessage(errorMessage(reason)))
   }
 
   const saveSnapshot = () => {
-    window.ogma.history.snapshot(path, current(), label).then(() => {
+    window.verdandi.history.snapshot(path, current(), label).then(() => {
       setLabel('')
       setMessage('Snapshot saved.')
       void refresh()

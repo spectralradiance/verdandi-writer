@@ -9,13 +9,13 @@ function element(tag: string, className: string, text?: string): HTMLElement {
   return node
 }
 
-/** Hovering a word shows its first definition from the local Wiktionary (from ogma's dictionaryHover). */
+/** Hovering a word shows its first definition from the local Wiktionary (from the prototype's dictionaryHover). */
 export const dictionaryHover = hoverTooltip(async (view, position) => {
   const line = view.state.doc.lineAt(position)
   const match = wordAt(line.text, position - line.from)
   if (!match || match.word.length < 3) return null
   try {
-    const entries = await window.ogma.dictionary.lookup(match.word)
+    const entries = await window.verdandi.dictionary.lookup(match.word)
     const entry = entries.find((candidate) => candidate.senses.some((sense) => sense.glosses.length > 0))
     if (!entry) return null
     const gloss = entry.senses.flatMap((sense) => sense.glosses)[0]

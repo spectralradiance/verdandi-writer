@@ -46,7 +46,7 @@ describe('renderHtml', () => {
 
 describe('writeExport', () => {
   it('writes Markdown as is and PDFs through the printer', async () => {
-    const folder = await mkdtemp(path.join(tmpdir(), 'ogma-export-'))
+    const folder = await mkdtemp(path.join(tmpdir(), 'verdandi-export-'))
     const target = path.join(folder, 'out.md')
     await writeExport(target, 'md', '# Hi\n', 'Hi', folder, async () => Buffer.from(''))
     expect(await readFile(target, 'utf8')).toBe('# Hi\n')

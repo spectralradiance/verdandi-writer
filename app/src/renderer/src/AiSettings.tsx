@@ -15,7 +15,7 @@ const KEY_LABELS: Record<SecretName, string> = {
   ANTHROPIC_API_KEY: 'Anthropic (Claude)',
   OPENAI_API_KEY: 'OpenAI',
   GEMINI_API_KEY: 'Google Gemini',
-  OGMA_COMPAT_API_KEY: 'OpenAI-compatible host (optional)',
+  VERDANDI_COMPAT_API_KEY: 'OpenAI-compatible host (optional)',
 }
 
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max']
@@ -32,14 +32,14 @@ export function AiSettings({ status, onClose }: AiSettingsProps) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.ogma.ai.settings().then(setState)
+    void window.verdandi.ai.settings().then(setState)
   }, [])
 
   const guard = (promise: Promise<AiSettingsState>) => {
     setError(null)
     promise.then(setState, (reason: unknown) => setError(errorMessage(reason)))
   }
-  const saveConfig = (config: AiConfig) => guard(window.ogma.ai.saveConfig(config))
+  const saveConfig = (config: AiConfig) => guard(window.verdandi.ai.saveConfig(config))
 
   return (
     <Modal label="AI settings" className="settings" onClose={onClose}>
@@ -65,7 +65,7 @@ export function AiSettings({ status, onClose }: AiSettingsProps) {
           <div className="settings-section">
             <p>Each AI task uses an editable Markdown template: the system prompt, a line <code>=== user ===</code>, then the message, with <code>{'{{placeholders}}'}</code> filled in. Delete a file to restore its default.</p>
             <p className="lexical-hint">{state.promptsDir}</p>
-            <button type="button" onClick={() => void window.ogma.ai.openPrompts()}>Open prompts folder</button>
+            <button type="button" onClick={() => void window.verdandi.ai.openPrompts()}>Open prompts folder</button>
           </div>
         )}
       </div>
@@ -93,17 +93,17 @@ function KeysTab({ state, onChange }: { state: AiSettingsState; onChange: (promi
             onChange={(event) => setDrafts((current) => ({ ...current, [key.name]: event.target.value }))}
           />
           <button type="button" disabled={!drafts[key.name]?.trim()} onClick={() => {
-            onChange(window.ogma.ai.setKey(key.name, drafts[key.name] ?? ''))
+            onChange(window.verdandi.ai.setKey(key.name, drafts[key.name] ?? ''))
             setDrafts((current) => ({ ...current, [key.name]: '' }))
           }}>Save</button>
-          <button type="button" disabled={!key.set} onClick={() => onChange(window.ogma.ai.setKey(key.name, null))}>Clear</button>
+          <button type="button" disabled={!key.set} onClick={() => onChange(window.verdandi.ai.setKey(key.name, null))}>Clear</button>
           <span className={`dot ${key.set ? 'dot-online' : 'dot-stopped'}`} title={key.set ? 'Saved' : 'Not set'} />
         </div>
       ))}
       <div className="settings-row">
         <span className="settings-label">OpenAI-compatible base URL</span>
         <input value={baseUrl} placeholder="https://host.example/v1 or http://localhost:1234/v1" onChange={(event) => setBaseUrl(event.target.value)} />
-        <button type="button" disabled={baseUrl === state.compatBaseUrl} onClick={() => onChange(window.ogma.ai.setCompatBaseUrl(baseUrl))}>Save</button>
+        <button type="button" disabled={baseUrl === state.compatBaseUrl} onClick={() => onChange(window.verdandi.ai.setCompatBaseUrl(baseUrl))}>Save</button>
       </div>
     </div>
   )
@@ -186,7 +186,7 @@ function TestButton({ profileId }: { profileId: string }) {
   const runId = useRef<string | null>(null)
   const text = useRef('')
 
-  useEffect(() => window.ogma.ai.onEvent((id, event: AiEvent) => {
+  useEffect(() => window.verdandi.ai.onEvent((id, event: AiEvent) => {
     if (id !== runId.current) return
     if (event.type === 'text') text.current += event.text
     if (event.type === 'start') text.current = `${event.provider_label} · ${event.model}: `
@@ -197,7 +197,7 @@ function TestButton({ profileId }: { profileId: string }) {
   const test = () => {
     setResult('…')
     text.current = ''
-    window.ogma.ai.run({ task: 'test', variables: {}, profileId, profileOnly: true, mode: 'hybrid', maxTokens: 16 }).then(
+    window.verdandi.ai.run({ task: 'test', variables: {}, profileId, profileOnly: true, mode: 'hybrid', maxTokens: 16 }).then(
       (id) => { runId.current = id },
       (reason: unknown) => setResult(`✗ ${errorMessage(reason)}`),
     )

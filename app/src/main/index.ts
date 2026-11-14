@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol, safeSt
 import { existsSync } from 'node:fs'
 import { rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { type AiConfig, type AiMessage, type AiRunRequest, type AiSettingsState, normalizeAiConfig, SECRET_NAMES, type SecretName } from '../shared/ai'
@@ -23,6 +23,7 @@ import { SettingsStore } from './settings'
 import { SidecarManager } from './sidecar'
 import { resolveSidecarPaths } from './sidecarUtil'
 import { buildWiktionary } from './wiktionaryBuilder'
+import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
 import { WorkspaceWatcher } from './watcher'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
@@ -30,8 +31,15 @@ import {
 } from './workspaceService'
 
 // Lets tests and experiments run against a throwaway profile instead of the real one.
-if (process.env.OGMA_USER_DATA) {
-  app.setPath('userData', process.env.OGMA_USER_DATA)
+if (process.env.VERDANDI_USER_DATA) {
+  app.setPath('userData', process.env.VERDANDI_USER_DATA)
+} else {
+  // Before anything (the single-instance lock included) writes to the new profile folder.
+  const legacyProfile = join(app.getPath('appData'), LEGACY_PROFILE_NAME)
+  if (migrateLegacyProfile(legacyProfile, app.getPath('userData')) === 'failed') {
+    // Most likely the old app is still running and holds files open: keep using its profile this time.
+    app.setPath('userData', legacyProfile)
+  }
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -46,7 +54,7 @@ const secrets = new SecretStore(join(app.getPath('userData'), 'keys.json'), {
 })
 const sidecar = new SidecarManager(resolveSidecarPaths(app.getAppPath(), process.env, process.platform), () => ({
   ...secrets.env(),
-  ...(settings.get().compatBaseUrl ? { OGMA_COMPAT_BASE_URL: settings.get().compatBaseUrl } : {}),
+  ...(settings.get().compatBaseUrl ? { VERDANDI_COMPAT_BASE_URL: settings.get().compatBaseUrl } : {}),
 }))
 const prompts = new PromptStore(join(app.getPath('userData'), 'prompts'))
 const snapshots = new SnapshotStore(join(app.getPath('userData'), 'snapshots'))
@@ -102,7 +110,7 @@ function aiSettingsState(): AiSettingsState {
 
 /** Renders HTML to PDF in a hidden window with scripts disabled. */
 async function printToPdf(html: string): Promise<Buffer> {
-  const file = join(app.getPath('temp'), `ogma-export-${randomUUID()}.html`)
+  const file = join(app.getPath('temp'), `verdandi-export-${randomUUID()}.html`)
   await writeFile(file, html, 'utf8')
   const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } })
   try {
@@ -124,12 +132,11 @@ function lexicon(): LexiconStore {
   return new LexiconStore(settings.get().lexiconDir ?? join(app.getPath('userData'), 'lexicon'))
 }
 
-/** Where to look for wiktionary.db: the saved choice, an override, then ogma's copy next to this project. */
+/** Where to look for wiktionary.db: the saved choice, then an override. */
 function dictionaryCandidates(): string[] {
   return [
     settings.get().dictionaryPath,
-    process.env.OGMA_DICTIONARY_DB,
-    resolve(app.getAppPath(), '..', '..', 'ogma', 'data', 'wiktionary.db'),
+    process.env.VERDANDI_DICTIONARY_DB,
   ].filter((candidate): candidate is string => Boolean(candidate))
 }
 
@@ -147,7 +154,7 @@ function openDictionary(candidates = dictionaryCandidates()): DictionaryStatus {
       dictionaryError = error instanceof Error ? error.message : String(error)
     }
   }
-  dictionaryError ??= 'No wiktionary.db found. Choose one, or build it with ogma’s setup:dict script.'
+  dictionaryError ??= 'No wiktionary.db found. Download one or choose a file in the Words panel.'
   return dictionaryStatus()
 }
 
@@ -217,7 +224,7 @@ function createWindow(): void {
     height: 820,
     minWidth: 720,
     minHeight: 480,
-    title: 'Ogma',
+    title: 'Verdandi Writer',
     show: false,
     autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1d1c' : '#f7f6f2',

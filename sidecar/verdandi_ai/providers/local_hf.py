@@ -1,7 +1,7 @@
-"""Local model adapter: Hugging Face transformers on CUDA, the ogma approach.
+"""Local model adapter: Hugging Face transformers on CUDA, as in the prototype.
 
 One model at a time, loaded lazily in 4-bit NF4 (float16 fallback), CUDA only
-(ogma's guard: no silent CPU offload), and unloaded after an idle timeout so
+(the prototype's guard: no silent CPU offload), and unloaded after an idle timeout so
 VRAM is returned. The lock is the "GPU lane": local jobs run one at a time.
 """
 

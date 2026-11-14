@@ -8,19 +8,19 @@ export interface SidecarPaths {
 }
 
 /**
- * In development the app lives in `ogma/app`, so the sidecar is its sibling.
- * OGMA_SIDECAR_DIR and OGMA_PYTHON override either location.
+ * In development the app lives in `verdandi-writer/app`, so the sidecar is its sibling.
+ * VERDANDI_SIDECAR_DIR and VERDANDI_PYTHON override either location.
  */
 export function resolveSidecarPaths(
   appPath: string,
   env: Record<string, string | undefined>,
   platform: NodeJS.Platform,
 ): SidecarPaths {
-  const sidecarDir = env.OGMA_SIDECAR_DIR ?? resolve(appPath, '..', 'sidecar')
+  const sidecarDir = env.VERDANDI_SIDECAR_DIR ?? resolve(appPath, '..', 'sidecar')
   const venvPython = platform === 'win32'
     ? join(sidecarDir, '.venv', 'Scripts', 'python.exe')
     : join(sidecarDir, '.venv', 'bin', 'python')
-  return { sidecarDir, python: env.OGMA_PYTHON ?? venvPython }
+  return { sidecarDir, python: env.VERDANDI_PYTHON ?? venvPython }
 }
 
 export function restartDelayMs(attempt: number): number {

@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from ogma_ai.ai_types import (
+from verdandi_ai.ai_types import (
     ChatMessage,
     GenerateRequest,
     Profile,
@@ -18,8 +18,8 @@ from ogma_ai.ai_types import (
     ToolSpec,
     text_event,
 )
-from ogma_ai.main import create_app
-from ogma_ai.router import RoutingConfig, candidates, run
+from verdandi_ai.main import create_app
+from verdandi_ai.router import RoutingConfig, candidates, run
 
 REQUEST = GenerateRequest(system="be brief", messages=(ChatMessage("user", "hi"),))
 

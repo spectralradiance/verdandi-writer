@@ -75,7 +75,7 @@ function appendText(turn: ChatTurn, text: string): ChatTurn {
 function ensureSubscribed() {
   if (subscribed) return
   subscribed = true
-  window.ogma.ai.onEvent((runId, event) => {
+  window.verdandi.ai.onEvent((runId, event) => {
     const handler = handlers.get(runId)
     if (handler) handler(event)
     else if (early) early.set(runId, [...(early.get(runId) ?? []), event])
@@ -158,7 +158,7 @@ async function step(request: AiRunRequest, started: number): Promise<StepResult>
   early = buffer
   let id: string
   try {
-    id = await window.ogma.ai.run(request)
+    id = await window.verdandi.ai.run(request)
   } catch (error) {
     if (early === buffer) early = null
     return { ...result, failure: { kind: 'bad_request', message: errorMessage(error) } }
@@ -166,7 +166,7 @@ async function step(request: AiRunRequest, started: number): Promise<StepResult>
   if (early === buffer) early = null
   handlers.set(id, handle)
   currentRun = id
-  if (stopRequested || generation !== started) void window.ogma.ai.cancel(id)
+  if (stopRequested || generation !== started) void window.verdandi.ai.cancel(id)
   for (const event of buffer.get(id) ?? []) handle(event)
   await finished
   handlers.delete(id)
@@ -211,7 +211,7 @@ export const chatStore = {
 
     let rendered: { system: string; messages: AiMessage[] }
     try {
-      rendered = await window.ogma.ai.render(task, { ...variables, message })
+      rendered = await window.verdandi.ai.render(task, { ...variables, message })
     } catch (error) {
       finish('error', errorMessage(error))
       return
@@ -275,11 +275,11 @@ export const chatStore = {
 
   cancel() {
     stopRequested = true
-    if (currentRun) void window.ogma.ai.cancel(currentRun)
+    if (currentRun) void window.verdandi.ai.cancel(currentRun)
   },
 
   clear() {
-    if (currentRun) void window.ogma.ai.cancel(currentRun)
+    if (currentRun) void window.verdandi.ai.cancel(currentRun)
     generation += 1
     early = null
     currentRun = null

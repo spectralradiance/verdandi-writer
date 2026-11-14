@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 import type { AiEvent } from '../shared/ai'
-import { type DailyWords, type DictionaryDownload, IPC, type OgmaApi, type SearchStatus, type SidecarStatus } from '../shared/ipc'
+import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type SidecarStatus } from '../shared/ipc'
 
-const api: OgmaApi = {
+const api: VerdandiApi = {
   preferences: {
     get: () => ipcRenderer.invoke(IPC.preferencesGet),
     save: (preferences) => ipcRenderer.invoke(IPC.preferencesSave, preferences),
@@ -124,4 +124,4 @@ const api: OgmaApi = {
   },
 }
 
-contextBridge.exposeInMainWorld('ogma', api)
+contextBridge.exposeInMainWorld('verdandi', api)

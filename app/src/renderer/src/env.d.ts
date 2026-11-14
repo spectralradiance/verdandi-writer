@@ -1,8 +1,8 @@
-import type { OgmaApi } from '../../shared/ipc'
+import type { VerdandiApi } from '../../shared/ipc'
 
 declare global {
   interface Window {
-    ogma: OgmaApi
+    verdandi: VerdandiApi
   }
 }
 

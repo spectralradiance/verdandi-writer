@@ -50,16 +50,16 @@ export function StatsDialog({ path, title, onOpenSection, onClose }: StatsDialog
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    window.ogma.stats.document(path).then((result) => {
+    window.verdandi.stats.document(path).then((result) => {
       setStats(result)
       setGoal(result.goal ? String(result.goal) : '')
     }, (reason: unknown) => setError(errorMessage(reason)))
-    void window.ogma.stats.daily(14).then(setDays)
+    void window.verdandi.stats.daily(14).then(setDays)
   }, [path])
 
   const saveGoal = () => {
     const words = Number(goal.replace(/[^\d]/g, ''))
-    window.ogma.stats.setGoal(path, words > 0 ? words : null).then(setStats, (reason: unknown) => setError(errorMessage(reason)))
+    window.verdandi.stats.setGoal(path, words > 0 ? words : null).then(setStats, (reason: unknown) => setError(errorMessage(reason)))
   }
 
   const progress = stats?.goal ? Math.min(1, stats.outputWords / stats.goal) : null

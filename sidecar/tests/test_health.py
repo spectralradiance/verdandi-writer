@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from ogma_ai.__main__ import main, watch_parent
-from ogma_ai.main import create_app
-from ogma_ai.system import parse_nvidia_smi
+from verdandi_ai.__main__ import main, watch_parent
+from verdandi_ai.main import create_app
+from verdandi_ai.system import parse_nvidia_smi
 
 TOKEN = "a" * 64
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

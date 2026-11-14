@@ -101,29 +101,29 @@ export function App() {
     let alive = true
     let pushed = false
     // Subscribe first so a status pushed while the initial fetch is in flight is not overwritten.
-    const unsubscribe = window.ogma.sidecar.onStatus((next) => {
+    const unsubscribe = window.verdandi.sidecar.onStatus((next) => {
       pushed = true
       setStatus(next)
     })
-    void window.ogma.sidecar.getStatus().then((initial) => {
+    void window.verdandi.sidecar.getStatus().then((initial) => {
       if (alive && !pushed) setStatus(initial)
     })
-    void window.ogma.preferences.get().then((stored) => {
+    void window.verdandi.preferences.get().then((stored) => {
       if (!alive) return
       applyAppearance(stored)
       setPreferences(stored)
     })
-    void window.ogma.workspace.get().then((initial) => {
+    void window.verdandi.workspace.get().then((initial) => {
       if (alive) setWorkspace(initial)
     })
     const today = (days: { notes: number; output: number }[]) => {
       const last = days.at(-1)
       return last ? last.notes + last.output : 0
     }
-    void window.ogma.stats.daily(1).then((days) => {
+    void window.verdandi.stats.daily(1).then((days) => {
       if (alive) setTodayWords(today(days))
     })
-    const unsubscribeStats = window.ogma.stats.onChanged((days) => setTodayWords(today(days)))
+    const unsubscribeStats = window.verdandi.stats.onChanged((days) => setTodayWords(today(days)))
     return () => {
       alive = false
       unsubscribe()
@@ -165,7 +165,7 @@ export function App() {
       return
     }
     try {
-      const { undoId } = await window.ogma.files.trash(file)
+      const { undoId } = await window.verdandi.files.trash(file)
       if (isOpen) changeTarget(null)
       setUndo({ undoId, title: folderName(file).replace(/\.md$/i, ''), path: file })
     } catch (error) {
@@ -176,7 +176,7 @@ export function App() {
   const undoDelete = useCallback(() => {
     if (!undo) return
     setUndo(null)
-    window.ogma.files.restore(undo.undoId).then(
+    window.verdandi.files.restore(undo.undoId).then(
       () => changeTarget({ path: undo.path }),
       (error: unknown) => window.alert(errorMessage(error)),
     )
@@ -188,11 +188,11 @@ export function App() {
       return
     }
     try {
-      const renamed = await window.ogma.folders.rename(folder, name)
+      const renamed = await window.verdandi.folders.rename(folder, name)
       // Open files inside the folder keep working at their new location.
       const remap = (path: string) => (isWithin(path, folder) ? renamed + path.slice(folder.replace(/[\\/]+$/, '').length) : path)
       if (target) changeTarget({ path: remap(target.path) })
-      setWorkspace(await window.ogma.workspace.get())
+      setWorkspace(await window.verdandi.workspace.get())
       setReloadToken((token) => token + 1)
     } catch (error) {
       window.alert(errorMessage(error))
@@ -206,7 +206,7 @@ export function App() {
       return
     }
     try {
-      const renamed = await window.ogma.files.rename(file, name)
+      const renamed = await window.verdandi.files.rename(file, name)
       if (isOpen) changeTarget({ path: renamed })
     } catch (error) {
       window.alert(errorMessage(error))
@@ -222,7 +222,7 @@ export function App() {
       return
     }
     try {
-      await window.ogma.folders.trash(folder)
+      await window.verdandi.folders.trash(folder)
       if (holdsOpen) changeTarget(null)
     } catch (error) {
       window.alert(errorMessage(error))
@@ -230,7 +230,7 @@ export function App() {
   }, [target, flushAll, changeTarget])
 
   const reveal = useCallback((path: string) => {
-    window.ogma.files.reveal(path).catch((error: unknown) => window.alert(errorMessage(error)))
+    window.verdandi.files.reveal(path).catch((error: unknown) => window.alert(errorMessage(error)))
   }, [])
 
   const toggleLive = useCallback(() => {
@@ -250,7 +250,7 @@ export function App() {
     setPreferences(next)
     // Sliders change many times a second; write once they settle.
     window.clearTimeout(savePreferencesTimer.current)
-    savePreferencesTimer.current = window.setTimeout(() => void window.ogma.preferences.save(next), 300)
+    savePreferencesTimer.current = window.setTimeout(() => void window.verdandi.preferences.save(next), 300)
   }, [])
 
   const toggleLeft = useCallback(() => {
@@ -387,18 +387,18 @@ export function App() {
         if (moved !== null) handle.replaceAll(moved)
         return
       }
-      const document = await window.ogma.files.read(file)
+      const document = await window.verdandi.files.read(file)
       const moved = moveSectionText(document.text, from, to)
       if (moved === null) return
-      const result = await window.ogma.files.write({ path: file, text: moved, format: document.format, expectedMtimeMs: document.mtimeMs })
+      const result = await window.verdandi.files.write({ path: file, text: moved, format: document.format, expectedMtimeMs: document.mtimeMs })
       if (!result.ok) window.alert(`“${folderName(file)}” changed on disk; try again.`)
     } catch (error) {
       window.alert(errorMessage(error))
     }
   }, [])
 
-  const addRoot = () => void window.ogma.workspace.addRoot().then(setWorkspace)
-  const removeRoot = (path: string) => void window.ogma.workspace.removeRoot(path).then(setWorkspace)
+  const addRoot = () => void window.verdandi.workspace.addRoot().then(setWorkspace)
+  const removeRoot = (path: string) => void window.verdandi.workspace.removeRoot(path).then(setWorkspace)
 
   const activePath = active?.path ?? null
   const outline = useOutline(target, docSections, reloadToken)
@@ -450,12 +450,12 @@ export function App() {
       read: async (path) => {
         const open = [...panes.current].find(([openPath]) => samePath(openPath, path))
         if (open) return open[1].getText()
-        return window.ogma.files.read(path).then((document) => document.text, () => null)
+        return window.verdandi.files.read(path).then((document) => document.text, () => null)
       },
       outline: () => aiWorkspace.outline?.markdown() ?? null,
       search: async (query) => {
-        await window.ogma.search.sync()
-        return window.ogma.search.query(query)
+        await window.verdandi.search.sync()
+        return window.verdandi.search.query(query)
       },
       suggestEdit: (path, oldText, newText, label, snapshot) => {
         const handle = panes.current.get(path)
@@ -539,7 +539,7 @@ export function App() {
         )}
         {!target && (
           <div className="placeholder">
-            <h1 className="wordmark">Ogma</h1>
+            <h1 className="wordmark">Verdandi Writer</h1>
             <p>{workspace.roots.length > 0 ? 'Choose a document from the sidebar.' : 'Add a folder to begin.'}</p>
           </div>
         )}

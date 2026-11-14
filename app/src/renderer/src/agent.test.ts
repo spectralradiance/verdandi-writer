@@ -75,7 +75,7 @@ describe('chat agent loop', () => {
 
   beforeEach(() => {
     requests.length = 0
-    const ogma = {
+    const verdandi = {
       ai: {
         onEvent: (next: typeof listener) => {
           listener = next
@@ -92,7 +92,7 @@ describe('chat agent loop', () => {
         cancel: async () => {},
       },
     }
-    ;(globalThis as unknown as { window: unknown }).window = { ogma }
+    ;(globalThis as unknown as { window: unknown }).window = { verdandi }
   })
 
   afterEach(() => chatStore.clear())

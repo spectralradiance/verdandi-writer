@@ -1,6 +1,6 @@
 # Verdandi Writer — Project Plan
 
-Verdandi Writer (repo and app name today: Ogma) is a writing workspace with three parts: a Markdown editor that renders as you type (like Typora), documents that are one Markdown file each, split into sections by their `#` headings, with each section's **notes** kept inline beside its **output** (the text itself), and lexical and AI tools that work on the text you have selected.
+Verdandi Writer is a writing workspace with three parts: a Markdown editor that renders as you type (like Typora), documents that are one Markdown file each, split into sections by their `#` headings, with each section's **notes** kept inline beside its **output** (the text itself), and lexical and AI tools that work on the text you have selected.
 
 It is one of the three Norn apps (see *The Norn Apps: Feature Boundaries*, Nov 12, 2026). **Verdandi is where you write.** Urdr Reader is where you read, and Skuldr Social is where you publish and talk with people. Verdandi receives material from Urdr and sends finished work to Skuldr; it doesn't copy either. It started on Windows desktop and grows to macOS, Linux, web and mobile (Phase 7).
 
@@ -17,14 +17,14 @@ It is one of the three Norn apps (see *The Norn Apps: Feature Boundaries*, Nov 1
 
 ## 1. What we can reuse
 
-| Source | What it has | How Ogma uses it |
+| Source | What it has | How Verdandi uses it |
 |---|---|---|
-| **ogma/frontend** (React 19, TS, Vite, CodeMirror 6) | `editor/liveMarkdown.ts` (live render built on regexes, one line at a time), `MarkdownEditor.tsx`, `dictionaryHover.ts`, `DictionaryInspector.tsx`, `WorkspaceEditor.tsx` (file tree, Ctrl+S, atomic saves) | Starting point for the editor. We rebuild the live renderer on the Lezer syntax tree (see Phase 1). Hover and inspector patterns carry over. |
-| **ogma/frontend/src/lib/dictionary** + `scripts/setup-wiktionary.ts` | Kaikki Wiktionary to SQLite with FTS5. `ogma/data/wiktionary.db` (~900 MB) is **already built** and stores senses, examples, IPA, **etymology, synonyms, antonyms, derived and related terms** | Copy the module as is. It covers the offline dictionary, etymology and most of the thesaurus with no network calls. |
-| **ogma/code/write_book.py** + **ogma/api/jobs.py** | 4-bit Qwen loading with transformers and bitsandbytes, CUDA guardrails, a serialized GPU job queue with cancellation and SSE | The **local model provider** and job queue in the sidecar. |
+| **Prototype `frontend/`** (React 19, TS, Vite, CodeMirror 6) | `editor/liveMarkdown.ts` (live render built on regexes, one line at a time), `MarkdownEditor.tsx`, `dictionaryHover.ts`, `DictionaryInspector.tsx`, `WorkspaceEditor.tsx` (file tree, Ctrl+S, atomic saves) | Starting point for the editor. We rebuild the live renderer on the Lezer syntax tree (see Phase 1). Hover and inspector patterns carry over. |
+| **Prototype `frontend/src/lib/dictionary`** + `scripts/setup-wiktionary.ts` | Kaikki Wiktionary to SQLite with FTS5. Its `data/wiktionary.db` (~900 MB) is **already built** and stores senses, examples, IPA, **etymology, synonyms, antonyms, derived and related terms** | Copy the module as is. It covers the offline dictionary, etymology and most of the thesaurus with no network calls. |
+| **Prototype `code/write_book.py`** + **`api/jobs.py`** | 4-bit Qwen loading with transformers and bitsandbytes, CUDA guardrails, a serialized GPU job queue with cancellation and SSE | The **local model provider** and job queue in the sidecar. |
 | **aisling** (Electron, Vue 2) | Personal lexicon model `{word, definition, tags, synonyms}`, prefix search (`tag:`, `synonym:`), and a list of external lookup URLs (etymonline, rhymezone, M-W…) | Data model and UX ideas for the Lexicon, plus an importer for `Vocabulary/*.json`. The code is too old to reuse directly (Electron 1.7, Vue 2). |
 | **oisin-old/pipeline** (Python) | Chunking, local embeddings (bge-small), taxonomy from folder structure, Claude synthesis prompts | Prompt and design reference for synthesis. Embeddings are used for related-notes search later. |
-| **Existing notes trees** (e.g. `ogma/data/input/outlines_notes/`) | Already laid out as "folder = document, numbered file = section" (`1 universal narrative/1 the first era`), and many files are extensionless or `.txt` | Added to the workspace **as they are** and edited in place (§3). They are the main test material. |
+| **Existing notes trees** (e.g. the prototype's `data/input/outlines_notes/`) | Already laid out as "folder = document, numbered file = section" (`1 universal narrative/1 the first era`), and many files are extensionless or `.txt` | Added to the workspace **as they are** and edited in place (§3). They are the main test material. |
 
 ---
 
@@ -38,7 +38,7 @@ Renderer (React + TS + Vite)
         ▲  typed IPC (contextBridge)
 Electron main process (Node)
  ├─ Workspace service   — multiple root folders, section discovery, file watching, in-place atomic saves
- ├─ Dictionary service  — better-sqlite3 over wiktionary.db (reused from ogma)
+ ├─ Dictionary service  — better-sqlite3 over wiktionary.db (reused from the prototype)
  ├─ Lexicon service     — saved words
  ├─ Secrets             — API keys in the OS keychain (safeStorage), passed to the sidecar at launch
  └─ Sidecar manager     — starts and stops the Python process, checks its health, restarts it if it crashes
@@ -46,22 +46,22 @@ Electron main process (Node)
 Python AI sidecar (FastAPI + uvicorn, own venv)
  ├─ Router              — picks a model profile for each task, with fallback (§2a)
  ├─ Provider layer      — one interface; the rest of the app never imports a vendor SDK
- │   ├─ local_hf        — transformers + bitsandbytes on CUDA (4-bit Qwen), the ogma approach
+ │   ├─ local_hf        — transformers + bitsandbytes on CUDA (4-bit Qwen), the prototype's approach
  │   ├─ anthropic       — Claude
  │   ├─ openai          — ChatGPT / OpenAI models
  │   ├─ gemini          — Google Gemini (google-genai SDK)
  │   └─ openai_compat   — any OpenAI-compatible endpoint (base URL + key): OpenRouter,
  │                        privacy-focused open-model hosts, or a local server later
  ├─ Embeddings          — sentence-transformers (bge-small) for related-notes search
- ├─ GPU job queue       — one GPU job at a time, cancellable, streamed over SSE (from ogma)
+ ├─ GPU job queue       — one GPU job at a time, cancellable, streamed over SSE (from the prototype)
  └─ Prompt templates    — editable Markdown files, independent of the provider (§3)
 ```
 
 **Why Electron with a Python sidecar:**
 - The app edits folders on disk in place, so it needs real filesystem access and file watching. Electron provides both.
 - `better-sqlite3` and the existing dictionary code run in Node without changes.
-- Ogma's React and CodeMirror code moves straight into the renderer.
-- CUDA, quantization and embeddings belong in Python, where ogma already has working code.
+- The prototype's React and CodeMirror code moves straight into the renderer.
+- CUDA, quantization and embeddings belong in Python, where the prototype already has working code.
 - The editor never depends on the sidecar. Editing, dictionary and lexicon work even when Python isn't running, and only the AI panel shows "offline".
 - All AI calls go through the sidecar, whichever provider serves them. That puts prompts, routing and history logging in one place, and the renderer uses a single streaming interface.
 
@@ -114,20 +114,20 @@ class Provider(Protocol):
 **A workspace is a set of external folders edited in place. Nothing is copied.**
 
 ```
-Workspace file  (e.g. Documents/Ogma/writing.ogma-workspace — like a VS Code .code-workspace)
+Workspace file  (e.g. Documents/Verdandi Writer/writing.verdandi-workspace — like a VS Code .code-workspace)
 {
   "roots": [
-    "C:/Users/snowb/Programs/text editors/ogma/data/input/outlines_notes",
+    "D:/writing/outlines_notes",
     "D:/writing/poetry"
   ],
-  "lexicon": "C:/Users/snowb/Documents/Ogma/lexicon",
-  "promptsDir": "C:/Users/snowb/Documents/Ogma/prompts"
+  "lexicon": "C:/Users/snowb/Documents/Verdandi Writer/lexicon",
+  "promptsDir": "C:/Users/snowb/Documents/Verdandi Writer/prompts"
 }
 ```
 
 **Documents** (changed 2026-10-11; the earlier folder-of-sections format, with a `-notes` and an `-output` file per section, was removed):
 - A **document is one Markdown file**. Folders are just folders, shown in the sidebar with their subfolders and documents.
-- Text files are `.md`, `.markdown`, `.txt`, `.text`, and files with no extension, the same rules as ogma's indexer.
+- Text files are `.md`, `.markdown`, `.txt`, `.text`, and files with no extension, the same rules as the prototype's indexer.
 - Each `#` heading starts a **section**; `##` and deeper stay inside it. A file with no `#` heading splits at its shallowest heading level. Sections are reordered, merged and renamed by editing the text.
 - A section's **notes** sit in Pandoc-style fenced blocks, `::: notes` … `:::`, usually under its text. Notes before the first heading are notes for the whole document (outline, sources). Headings inside notes never start a section.
 - One editor shows the file as **Output** (the text, notes hidden), **Notes** (all notes as one flow under the section headings) or **Both**.
@@ -135,34 +135,34 @@ Workspace file  (e.g. Documents/Ogma/writing.ogma-workspace — like a VS Code .
 **Editing in place safely:**
 - Atomic saves: write to a temp file in the same folder, then rename.
 - **Preserve encoding and line endings.** Old `.txt` notes may be cp1252 or UTF-8 with a BOM, and may use CRLF. The file is detected on open and written back in the same format.
-- The file watcher detects edits made outside Ogma (VS Code, sync tools). A clean buffer reloads silently. A buffer with unsaved changes shows a merge or keep-mine prompt.
-- **Backup on first write:** the first time a file is modified in a session, its original is copied to `<appData>/Ogma/backups/<date>/…`. Backups are pruned after N days.
+- The file watcher detects edits made outside Verdandi (VS Code, sync tools). A clean buffer reloads silently. A buffer with unsaved changes shows a merge or keep-mine prompt.
+- **Backup on first write:** the first time a file is modified in a session, its original is copied to `<appData>/Verdandi Writer/backups/<date>/…`. Backups are pruned after N days.
 - Delete moves files to the OS trash, never deletes them permanently.
 
-**App-owned data stays out of your folders by default.** It lives in `<appData>/Ogma/`:
+**App-owned data stays out of your folders by default.** It lives in `<appData>/Verdandi Writer/`:
 - Per-document metadata (manual order overrides, collapsed state, custom section titles), keyed by path.
 - AI run history.
-- A "store metadata in folder" option per root writes an `.ogma/` folder into that root instead, for roots you sync between machines.
+- A "store metadata in folder" option per root writes a `.verdandi/` folder into that root instead, for roots you sync between machines.
 
 The lexicon and prompt templates live in the folders named in the workspace file, as Markdown files with front-matter, so they can be read and edited outside the app.
 
 ---
 
-## 3a. Repository layout (this `ogma/` folder)
+## 3a. Repository layout (this `verdandi-writer/` folder)
 
 ```
-ogma/
+verdandi-writer/
   app/                  # Electron + React + TS (electron-vite)
     src/main/           # workspace, dictionary, lexicon, sidecar manager, IPC
     src/preload/
     src/renderer/       # React UI, CodeMirror extensions
   sidecar/              # Python FastAPI AI server
-    ogma_ai/
+    verdandi_ai/
       main.py           # routes: /health, /providers, /ai/run (SSE), /jobs, /embed
       router.py         # task → profile → provider, mode filtering, fallback
       types.py          # GenerateRequest, StreamEvent, ProviderError kinds
       providers/        # base.py, local_hf.py, anthropic.py, openai.py, gemini.py, openai_compat.py
-      jobs.py           # GPU queue (from ogma)
+      jobs.py           # GPU queue (from the prototype)
     tests/
     requirements.txt
   scripts/              # dev.ps1 (launch both), setup-sidecar.ps1 (venv + CUDA torch)
@@ -193,7 +193,7 @@ Also landed early from Phase 2 because in-place editing needed them: a lazy file
 
 ### Phase 2 — Workspace, documents & sections (~1 week) ✅ done 2026-09-25
 What shipped differs from the spec below in four places:
-- Roots live in the app's settings; the separate `.ogma-workspace` file (several named workspaces) is deferred until it is needed.
+- Roots live in the app's settings; the separate `.verdandi-workspace` file (several named workspaces) is deferred until it is needed.
 - Reordering is ↑/↓ (swapping ordinals, both files renamed together) rather than drag and drop.
 - Scroll sync between panes is deferred.
 - The watcher uses Node's recursive `fs.watch`; on folders it cannot watch (possibly some cloud-drive mounts) the tree only refreshes when a folder is reopened, but edits still never overwrite outside changes, because every save checks the file's mtime.
@@ -212,15 +212,15 @@ A double document (folder of sections) opens whole, in four views: **Column** (e
 Replaced the folder-of-sections format (Phases 2 and 2b) with the one-file format in §3: sections from `#` headings, inline notes blocks, and Output / Notes / Both views of one editor. The section files, section operations (rename, move, merge, delete) and the per-section view are gone; the sidebar lists plain folders and documents, with rename and undoable delete for files. Stats, export, search and AI drafting work on the single file.
 
 ### Phase 3 — Lexical tools (~1 week, mostly reuse) ✅ done 2026-09-25
-Uses Node's built-in `node:sqlite` (no native module) over ogma's `wiktionary.db`, with indexed case-variant lookups (the original `COLLATE NOCASE` query scanned all 1.5M rows, ~10 s). Not done: underlining lexicon words in the text.
+Uses Node's built-in `node:sqlite` (no native module) over the prototype's `wiktionary.db`, with indexed case-variant lookups (the original `COLLATE NOCASE` query scanned all 1.5M rows, ~10 s). Not done: underlining lexicon words in the text.
 
-- Copy ogma's dictionary module and point it at `wiktionary.db`. The path is configurable, and the setup script can rebuild the database if it is missing.
+- Copy the prototype's dictionary module and point it at `wiktionary.db`. The path is configurable, and the setup script can rebuild the database if it is missing.
 - Right-hand drawer with tabs that follow the current selection or the word under the cursor:
   - **Define:** senses, examples, IPA and part of speech.
   - **Etymology:** the etymology text, with root words you can click to look up.
   - **Thesaurus:** synonyms, antonyms, related and derived terms. Clicking a term looks it up, and Alt+click replaces your selection with it.
   - **External:** Aisling's lookup-URL table (etymonline, rhymezone, M-W) opened in the system browser. Not in an in-app panel: Verdandi has no built-in browser.
-- Hover definition (from ogma's `dictionaryHover.ts`) and a Ctrl+D shortcut to open the drawer.
+- Hover definition (from the prototype's `dictionaryHover.ts`) and a Ctrl+D shortcut to open the drawer.
 - **Lexicon:** a "Save word" action stores the word, definition, tags, your own note, and the sentence and section it came from. There is a lexicon browser with Aisling-style prefix search (`tag:`, `syn:`), and an importer for Aisling's `Vocabulary/*.json`.
 - Optional: underline words in the text that are already in your lexicon.
 
@@ -228,7 +228,7 @@ Uses Node's built-in `node:sqlite` (no native module) over ogma's `wiktionary.db
 Tested end to end against a local mock of an OpenAI-compatible server (no API keys were available); the Claude, OpenAI and Gemini adapters are contract-tested through their real SDKs against mocks of each wire format. Not yet exercised: live cloud calls and the local GPU model (needs `setup-sidecar.ps1` without `-NoTorch` and a model download). Draft output uses the section's notes, current output and document notes; neighbouring sections are not yet included.
 - **4a. Provider layer (sidecar):**
   - The `Provider` protocol, the shared request and event types, and error normalization (§2a).
-  - `local_hf` ported from ogma: 4-bit Qwen that loads lazily, frees VRAM after an idle timeout, and keeps the CUDA guardrails.
+  - `local_hf` ported from the prototype: 4-bit Qwen that loads lazily, frees VRAM after an idle timeout, and keeps the CUDA guardrails.
   - `anthropic` first. Then `openai`, `gemini` and `openai_compat`, each about a day, since they only translate to and from the shared types.
   - A router with profiles, the routing table, mode filtering and fallback on `unavailable`, `rate_limit` or `auth`. SSE streaming to the app.
   - A contract test suite run against every adapter, plus a fake provider for feature tests.
@@ -239,18 +239,18 @@ Tested end to end against a local mock of an OpenAI-compatible server (no API ke
 - **Analyze** (current selection or section): tone, structure, readability (the numeric scores such as Flesch and sentence-length spread are computed locally, and the AI adds the qualitative read), and style notes. Results appear in the drawer, not in your text.
 - **Synthesize notes → output:** reads the notes file (plus, optionally, the document notes such as `outline`, the output of the neighbouring sections, and a style guide) and puts a draft into a **diff/merge view** against the output file. You accept or reject each hunk, so the AI never overwrites your text silently.
 - **Lexical assist:** "vary this word", "stronger verb", and "thematic vocabulary for this section". Suggestions come back as a list, and each option is checked against the local dictionary.
-- Prompt templates are editable `.md` files (the same idea as ogma's `guidance.json`), and each run is logged to the history.
+- Prompt templates are editable `.md` files (the same idea as the prototype's `guidance.json`), and each run is logged to the history.
 
 ### Phase 5 — Polish & later ✅ done 2026-09-25 (except embeddings)
 Shipped: search across all roots (SQLite FTS5 index, Ctrl+Shift+F), keyword-based "related notes", export to PDF/HTML/Markdown, per-file version history (automatic every 10 minutes while editing, plus labelled snapshots, diff and restore), and writing statistics (per-section counts, output goal, net words per day). Not done: DOCX export, embedding-based related notes (needs the PyTorch stack), git-backed history (now part of Git sync, Phase 7).
 - Global search across all roots (ripgrep or SQLite FTS).
 - Export a whole document as the output files joined into one `.md`, HTML, PDF or DOCX.
 - Version snapshots for each section (git per root, or the backup store).
-- "Related notes" for the current section using embeddings across all roots (oisin-old / ogma retrieval).
+- "Related notes" for the current section using embeddings across all roots (oisin-old and prototype retrieval).
 - Word-count goals and writing statistics for each section.
 
 **Deferred (not planned for now):**
-- LM Studio / Bionic integration. Its models could be used through `openai_compat` with no new code. An Ogma MCP server that lets Bionic or Claude work on the workspace (with edits as reviewable proposals) could be revisited later.
+- LM Studio / Bionic integration. Its models could be used through `openai_compat` with no new code. A Verdandi MCP server that lets Bionic or Claude work on the workspace (with edits as reviewable proposals) could be revisited later.
 
 ### Phase 6 — Norn handoffs
 Each handoff is a one-way send by file, deep link or URL, never shared in-app state, so Verdandi still works installed alone.
@@ -282,16 +282,15 @@ Desktop stays the full app; web and mobile are a lighter editor over the same fi
 
 **Decided:**
 - Electron plus a Python AI sidecar.
-- AI runs through a provider abstraction: a local model (ogma-style transformers/bitsandbytes), plus Claude, OpenAI, Gemini and any OpenAI-compatible host. The modes are Local, Cloud and Hybrid.
+- AI runs through a provider abstraction: a local model (transformers/bitsandbytes, as in the prototype), plus Claude, OpenAI, Gemini and any OpenAI-compatible host. The modes are Local, Cloud and Hybrid.
 - LM Studio / Bionic is deferred.
 - A workspace is a set of external folders edited in place, with no copying.
 - The code lives in this repo. The scope is the features listed here and nothing more.
 
 - A document is one Markdown file: `#` headings make the sections and notes are inline (§3). This settles the earlier open questions about reordering sections and naming output files.
 
-- Verdandi's place among the Norn apps (2026-11-13): it receives reading material from Urdr and sends finished work to Skuldr (Phase 6). It does **not** get a built-in browser or feed panel, even a small one, and it does **not** post directly. Packages, app IDs and folders move to the name `verdandi` with the other repo renames.
+- Verdandi's place among the Norn apps (2026-11-13): it receives reading material from Urdr and sends finished work to Skuldr (Phase 6). It does **not** get a built-in browser or feed panel, even a small one, and it does **not** post directly. Packages, app IDs and folders use the name Verdandi (renamed 2026-11-14). The old `%APPDATA%\Ogma` profile moves to `%APPDATA%\Verdandi Writer` on first launch.
 
 **Open questions:**
 - **AI on web and mobile:** the sidecar is a local Python process. Without it, cloud calls need either your API keys stored on the device (web storage is weaker than the OS keychain) or a small hosted relay. "Your desktop's model" on a phone needs the desktop sidecar reachable over the network, which today binds to 127.0.0.1 only.
 - **Publish transport:** does Verdandi call Skuldr's API (signing in to your Skuldr instance), or open Skuldr with the draft attached? Decided with Skuldr.
-- **Renaming in code:** the `%APPDATA%\Ogma` profile, `OGMA_*` environment variables and `.ogma/` metadata folders. Rename with a migration, or keep them as internal names?

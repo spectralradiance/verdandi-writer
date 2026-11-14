@@ -104,14 +104,14 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
     this.token = randomBytes(32).toString('hex')
     this.baseUrl = `http://127.0.0.1:${port}`
     this.setStatus({ state: 'starting', health: null, error: this.status.error })
-    this.logs.add(`[ogma] starting sidecar on port ${port}`)
+    this.logs.add(`[verdandi] starting sidecar on port ${port}`)
 
     const child = spawn(
       this.paths.python,
-      ['-m', 'ogma_ai', '--host', '127.0.0.1', '--port', String(port), '--parent-pid', String(process.pid)],
+      ['-m', 'verdandi_ai', '--host', '127.0.0.1', '--port', String(port), '--parent-pid', String(process.pid)],
       {
         cwd: this.paths.sidecarDir,
-        env: { ...process.env, ...this.extraEnv(), OGMA_SIDECAR_TOKEN: this.token, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+        env: { ...process.env, ...this.extraEnv(), VERDANDI_SIDECAR_TOKEN: this.token, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       },
@@ -182,14 +182,14 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
     this.setStatus({ state: 'installing', health: null, error: null })
     let failure: Error | null = null
     for (const args of commands) {
-      this.logs.add(`[ogma] python ${args.join(' ')}`)
+      this.logs.add(`[verdandi] python ${args.join(' ')}`)
       const result = await this.runInstallStep(args)
       if (result !== 0) {
         failure = new Error(`Installing PyTorch failed (${result}). The log has pip's output.`)
         break
       }
     }
-    this.logs.add(failure ? `[ogma] ${failure.message}` : '[ogma] PyTorch installed')
+    this.logs.add(failure ? `[verdandi] ${failure.message}` : '[verdandi] PyTorch installed')
     if (this.stopping && this.status.state !== 'installing') return // the app is quitting
     this.restarts = 0
     await this.start()
@@ -228,7 +228,7 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
         await delay(STARTUP_POLL_MS)
       }
     }
-    this.logs.add('[ogma] sidecar did not answer /health in time')
+    this.logs.add('[verdandi] sidecar did not answer /health in time')
     this.killChild()
     return null
   }
@@ -256,7 +256,7 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
     } catch (error) {
       if (generation !== this.generation) return
       this.failedPolls += 1
-      this.logs.add(`[ogma] health check failed (${this.failedPolls}/${MAX_FAILED_POLLS}): ${errorMessage(error)}`)
+      this.logs.add(`[verdandi] health check failed (${this.failedPolls}/${MAX_FAILED_POLLS}): ${errorMessage(error)}`)
       if (this.failedPolls >= MAX_FAILED_POLLS) {
         this.killChild() // the exit handler restarts it
         return
@@ -269,7 +269,7 @@ export class SidecarManager extends EventEmitter<{ status: [SidecarStatus] }> {
     if (generation !== this.generation) return
     this.child = null
     this.clearTimers()
-    this.logs.add(`[ogma] sidecar ${reason}`)
+    this.logs.add(`[verdandi] sidecar ${reason}`)
 
     if (this.stopping) {
       this.setStatus({ state: 'stopped', health: null, error: null })
