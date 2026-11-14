@@ -31,7 +31,7 @@ API keys are set in the app under **AI → ⚙ AI settings → Keys** (stored en
 
 ## Samples
 
-`samples/` holds example documents: *The Night Sky* (four sections with notes; one has notes only), *Winter Notebook* and *Field Journal*. Add the folder with **+** in the sidebar and try the Output / Notes / Both views.
+`samples/` holds example documents: *The Night Sky* (four sections with notes; one has notes only), *Winter Notebook* and *Field Journal*. Add the folder with **+** in the sidebar and try the Text and Notes views.
 
 ## Documents
 
@@ -47,13 +47,14 @@ Working notes, research and fragments for this section.
 :::
 ```
 
-The header switches between three views of the same file:
+The document is shown as rows, one per section, each with a **primary** side and a **secondary** side. The header switches between two views:
 
-- **Output**: the text as one continuous document, notes hidden.
-- **Notes**: every section's notes as one continuous document, under the section headings. Press Enter on a heading to start that section's notes.
-- **Both**: text and notes together, each notes block drawn as a quieter, indented block (in Live mode its `::: notes` / `:::` lines fold away until the cursor is in it).
+- **Text view**: each section's text first, its notes beside it.
+- **Notes view**: each section's notes first (under the section's heading), its text beside it.
 
-Edits in any view go straight into the file. **Ctrl+Alt+N** adds a notes block to the section you are in, or jumps to the one it has (switching to the Notes view from Output). Headings inside notes never start a section. Word counts keep notes apart (the status bar shows "N in notes"), exports leave notes out (or export only the notes), AI Analyze ignores them, and **Draft output from notes** drafts the section at the cursor from its notes.
+On a wide window the primary side is on the left and the secondary on the right; on a narrow one (a phone, or a window squeezed by the side panels) they stack, primary on top. A row is as tall as its primary text, and the secondary side scrolls within it. Drag a row's bottom edge to make it taller or shorter (both sides then scroll); double-click the edge to fit the text again. The secondary side can be hidden for one section (the eye icon on it, or the icon at the row's right edge to bring it back) or for the whole document (the columns button in the header, which also resets the per-section choices). Heights and per-section choices are remembered for each file.
+
+Edits on either side go straight into the file: notes typed for a section without any start a `::: notes` block at its end, and existing blocks stay where they are in the text. A heading or notes markers typed into a side are sorted into rows when you leave it. **Ctrl+Alt+N** moves between a section's text and notes (showing the other side if it is hidden), and the arrow keys move on to the next or previous section at the end of one. Headings inside notes never start a section. Word counts keep notes apart (the status bar shows "N in notes"), exports leave notes out (or export only the notes), AI Analyze ignores them, and **Draft output from notes** drafts the section at the cursor from its notes.
 
 **New document** (folder right-click, or the + on a folder) makes one.
 

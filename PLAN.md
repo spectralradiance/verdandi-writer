@@ -33,7 +33,7 @@ It is one of the three Norn apps (see *The Norn Apps: Feature Boundaries*, Nov 1
 ```
 Renderer (React + TS + Vite)
  ├─ Sidebar: workspace roots → folders → documents; Outline: the open document's sections
- ├─ Editor: one CodeMirror 6 instance per document, showing Output / Notes / Both
+ ├─ Editor: rows of CodeMirror 6 editors, two per section (text and notes)
  └─ Right drawer: Dictionary / Etymology / Thesaurus / Lexicon / AI
         ▲  typed IPC (contextBridge)
 Electron main process (Node)
@@ -130,7 +130,7 @@ Workspace file  (e.g. Documents/Verdandi Writer/writing.verdandi-workspace — l
 - Text files are `.md`, `.markdown`, `.txt`, `.text`, and files with no extension, the same rules as the prototype's indexer.
 - Each `#` heading starts a **section**; `##` and deeper stay inside it. A file with no `#` heading splits at its shallowest heading level. Sections are reordered, merged and renamed by editing the text.
 - A section's **notes** sit in Pandoc-style fenced blocks, `::: notes` … `:::`, usually under its text. Notes before the first heading are notes for the whole document (outline, sources). Headings inside notes never start a section.
-- One editor shows the file as **Output** (the text, notes hidden), **Notes** (all notes as one flow under the section headings) or **Both**.
+- The file is shown as rows, one per section, each with a primary and a secondary side (changed 2026-11-14; before, one editor showed Output, Notes or Both). The **Text view** puts the text first and the notes beside it, the **Notes view** the other way round. Two columns when wide, stacked when narrow. A row is as tall as its primary text unless dragged; the secondary side can be hidden per section or for the whole document. Each side is a small editor over a projection of its section, and edits are mapped back so notes blocks keep their place in the file.
 
 **Editing in place safely:**
 - Atomic saves: write to a temp file in the same folder, then rename.

@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react'
-import { Code, Eye, FileText, Focus, Layers, type LucideIcon, NotebookPen } from 'lucide-react'
+import { Code, Columns2, Eye, FileText, Focus, type LucideIcon, NotebookPen } from 'lucide-react'
 
-import type { NotesView } from './editor/notesBlocks'
+import type { CellKind } from './editor/sectionModel'
 
 // Toolbar buttons are icons: the label is the accessible name, the title the tooltip.
 const ICON = { size: 16, strokeWidth: 1.8, 'aria-hidden': true } as const
@@ -14,20 +14,34 @@ export function IconButton({ icon: Icon, label, title, ...props }: { icon: Lucid
   )
 }
 
-const NOTES_VIEWS: { id: NotesView; label: string; title: string; icon: LucideIcon }[] = [
-  { id: 'output', icon: FileText, label: 'Output', title: 'The text as one continuous document, notes hidden' },
-  { id: 'notes', icon: NotebookPen, label: 'Notes', title: 'All notes as one continuous document, under each section’s # heading. Enter on a heading starts its notes.' },
-  { id: 'all', icon: Layers, label: 'Both', title: 'Text and notes together, each section’s notes under its text. Ctrl+Alt+N adds or jumps to notes.' },
+const VIEWS: { id: CellKind; label: string; title: string; icon: LucideIcon }[] = [
+  { id: 'output', icon: FileText, label: 'Text view', title: 'each section’s text first, with its notes beside it' },
+  { id: 'notes', icon: NotebookPen, label: 'Notes view', title: 'each section’s notes first, with its text beside it' },
 ]
 
-/** The output alone, the notes alone, or both. */
-export function NotesViewSwitch({ view, onView }: { view: NotesView; onView: (view: NotesView) => void }) {
+/** Which side of each section comes first, and whether the other side is shown. */
+export function ViewSwitch({ primary, onPrimary, secondaryShown, onSecondaryShown }: {
+  primary: CellKind
+  onPrimary: (primary: CellKind) => void
+  secondaryShown: boolean
+  onSecondaryShown: (shown: boolean) => void
+}) {
+  const other = primary === 'output' ? 'notes' : 'text'
   return (
-    <div className="segmented" role="group" aria-label="Document view">
-      {NOTES_VIEWS.map((option) => (
-        <IconButton key={option.id} icon={option.icon} label={option.label} title={`${option.label}: ${option.title}`} aria-pressed={view === option.id} onClick={() => onView(option.id)} />
-      ))}
-    </div>
+    <>
+      <div className="segmented" role="group" aria-label="Document view">
+        {VIEWS.map((option) => (
+          <IconButton key={option.id} icon={option.icon} label={option.label} title={`${option.label}: ${option.title}`} aria-pressed={primary === option.id} onClick={() => onPrimary(option.id)} />
+        ))}
+      </div>
+      <IconButton
+        icon={Columns2}
+        label={secondaryShown ? `Hide all ${other}` : `Show all ${other}`}
+        title={`${secondaryShown ? 'Hide' : 'Show'} the ${other} beside every section. Each section can be shown or hidden on its own too; Ctrl+Alt+N moves between a section’s text and notes.`}
+        aria-pressed={secondaryShown}
+        onClick={() => onSecondaryShown(!secondaryShown)}
+      />
+    </>
   )
 }
 

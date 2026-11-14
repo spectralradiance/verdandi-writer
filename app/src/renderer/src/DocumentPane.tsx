@@ -6,8 +6,9 @@ import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
 import { extractHeadings, type Heading } from '../../shared/text'
 import { onDiskChange, touchesFile } from './changes'
-import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './editor/MarkdownEditor'
-import type { NotesView } from './editor/notesBlocks'
+import type { MarkdownEditorHandle, WordInContext } from './editor/MarkdownEditor'
+import { SectionGrid } from './editor/SectionGrid'
+import type { CellKind } from './editor/sectionModel'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { History, X } from 'lucide-react'
@@ -72,9 +73,10 @@ interface DocumentPaneProps {
   path: string
   live: boolean
   focusMode: boolean
-  /** Show the text alone, the notes alone, or both. */
-  notesView?: NotesView
-  onShowNotes?: () => void
+  /** Which side of each section comes first: the text or the notes. */
+  primary: CellKind
+  /** Show the other side of every section (each section can override it). */
+  secondaryShown: boolean
   headerActions?: ReactNode
   onInfo: (info: DocumentInfo | null) => void
   onHeadings?: (headings: Heading[]) => void
@@ -92,7 +94,7 @@ interface DiskState {
 }
 
 export function DocumentPane({
-  ref, path, live, focusMode, notesView, onShowNotes, headerActions,
+  ref, path, live, focusMode, primary, secondaryShown, headerActions,
   onInfo, onHeadings, onSections, onDirtyChange, onFocus, onSelectWord, onClose,
 }: DocumentPaneProps) {
   const [loaded, setLoaded] = useState<{ document: TextDocument; generation: number } | null>(null)
@@ -371,7 +373,7 @@ export function DocumentPane({
       )}
 
       {loaded ? (
-        <MarkdownEditor
+        <SectionGrid
           key={loaded.generation}
           ref={editor}
           path={path}
@@ -379,8 +381,8 @@ export function DocumentPane({
           initialText={loaded.document.text}
           live={live}
           focusMode={focusMode}
-          notesView={notesView}
-          onShowNotes={onShowNotes}
+          primary={primary}
+          secondaryShown={secondaryShown}
           onDocChanged={onDocChanged}
           onSave={() => void save()}
           onBlur={() => void save()}

@@ -152,3 +152,17 @@ const live = EditorView.theme({
 })
 
 export const editorTheme: Extension = [base, live, syntaxHighlighting(highlight)]
+
+/**
+ * One section's text or notes in the two-column view: as tall as its text (the row
+ * scrolls, not the editor), with room to type but none of the page's margins.
+ */
+export const cellTheme: Extension = [
+  EditorView.editorAttributes.of({ class: 'cm-cell' }),
+  EditorView.theme({
+    '&.cm-cell': { height: 'auto', backgroundColor: 'transparent' },
+    '&.cm-cell .cm-scroller': { overflow: 'visible' },
+    '&.cm-cell .cm-content': { padding: '14px 24px 18px', minHeight: '2em' },
+    '&.cm-cell .cm-md-h1:first-child, &.cm-cell .cm-md-h2:first-child': { paddingTop: '0.1em !important' },
+  }),
+]
