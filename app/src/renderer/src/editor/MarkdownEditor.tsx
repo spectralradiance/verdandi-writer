@@ -11,7 +11,7 @@ import { toggleWrap } from './commands'
 import { dictionaryHover } from './dictionaryHover'
 import { documentTitle } from './documentTitle'
 import { focusMode as focusModeExtension } from './focusMode'
-import { documentPath, livePreview } from './livePreview'
+import { documentPath, imageFolder as imageFolderFacet, livePreview } from './livePreview'
 import { addOrJumpToNotes, notesBlocks, notesView as notesViewFacet, type NotesView, revealSelection, SHOW_NOTES_EVENT } from './notesBlocks'
 import { proposeRangeSpec, proposeText, suggestions, suggestionsOf } from './suggestions'
 import { cellTheme, editorTheme } from './theme'
@@ -79,6 +79,8 @@ function wordInContext(state: EditorState): (WordInContext & { from: number; to:
 interface MarkdownEditorProps {
   ref?: Ref<MarkdownEditorHandle>
   path: string
+  /** The folder images resolve against, when not the file's folder (a document folder's own path). Fixed when the editor is made. */
+  imageFolder?: string
   initialText: string
   placeholder?: string
   /** The document's title, shown above the text without being part of it. */
@@ -112,7 +114,7 @@ const noop = () => {}
  * instead of receiving it on every keystroke, which keeps large notes fast.
  */
 export function MarkdownEditor({
-  ref, path, initialText, placeholder, title = '', live, focusMode, notesView = 'all', onShowNotes, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
+  ref, path, imageFolder, initialText, placeholder, title = '', live, focusMode, notesView = 'all', onShowNotes, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
   variant = 'document', extraKeys, onChanges, readOnly = false,
 }: MarkdownEditorProps) {
   const container = useRef<HTMLDivElement>(null)
@@ -217,6 +219,7 @@ export function MarkdownEditor({
       doc: initialText,
       extensions: [
         documentPath.of(path),
+        imageFolderFacet.of(imageFolder ?? ''),
         EditorState.readOnly.of(readOnly),
         history(),
         drawSelection(),
@@ -277,7 +280,7 @@ export function MarkdownEditor({
       editor.destroy()
       view.current = null
     }
-  }, [path, initialText, placeholder, compartments, variant, readOnly])
+  }, [path, imageFolder, initialText, placeholder, compartments, variant, readOnly])
 
   useLayoutEffect(() => {
     view.current?.dispatch({ effects: compartments.live.reconfigure(live ? livePreview : []) })

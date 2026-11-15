@@ -395,8 +395,11 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Callouts from Obsidian:** a callout whose type isn't declared, such as `> [!beats]`, gets a banner offering to make it a layer, or to keep it as text.
   - **Renamed files:** `.verdandi/sections.yaml` remembers which file each section id was in. When a section file is renamed outside Obsidian, its stale embed finds the file again by that id, or, with one stale embed and one unlisted file, they are matched to each other; the next save writes the new name into the note. The folder watcher already counted any change in a document folder as a change to the document.
   - **Fixed:** with a section marker removed, a section ending in a layer block no longer runs into the next section's first paragraph in exports.
+- **Done, layer kinds, 2026-11-14:**
+  - **Gallery layers** show their images as a grid (`editor/GalleryCell.tsx`, `editor/gallery.ts`). Images are added with "Add images…" or by dropping files on the grid; they are copied into the document's `attachments/` under free names. They can be dragged to reorder and removed from the layer (the file stays). "Edit as text" shows the Markdown.
+  - **Image embeds:** `![[map.png]]` renders as an image in every cell, looked for in `attachments/` and then the folder. A document folder's images resolve against the folder itself. Before this, Markdown read `![[…]]` as a broken image; note embeds now stay text.
+  - **Moving sections by drag:** every row has a grip, in any view but a section's own page; drop it above or below another row. With a list layer first, the rows read as one outline of the document (each section's name over its items), compact once the other layers are hidden. The sidebar's drag now passes the document's layers too.
 - **Next:**
-  - **Layer kinds:** a gallery layer that shows `![[image]]` embeds as a grid, with images added to `attachments/`, and a list layer whose outline across the document can be dragged to reorder sections. Today every kind is edited as Markdown.
   - **Split from any layer**, as §3b describes (today a split starts from the text), and fields edited in the app rather than only in Obsidian.
   - **The Urdr import** (Phase 6) is not built yet. When it is, highlights land in the section's notes layer as callout content, which `splitSections` already reads per layer.
   - **The status bar's "in notes" count** and the daily totals still take every layer other than the text together; the Stats dialog has them per layer.

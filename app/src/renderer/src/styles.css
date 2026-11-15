@@ -2652,3 +2652,36 @@ body.resizing {
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
+
+/* A gallery layer (Phase 8): its images as a grid, with the Markdown a click away. */
+.gallery-cell { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.6rem 30px; min-height: 3rem; border-radius: 6px; }
+.gallery-cell.dropping { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.gallery-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: 0.6rem; }
+.gallery-item { position: relative; cursor: grab; }
+.gallery-item:active { cursor: grabbing; }
+.gallery-item figure { margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.gallery-item img, .gallery-missing {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); background: var(--surface);
+}
+.gallery-missing { display: flex; align-items: center; justify-content: center; padding: 0.4rem; font-size: 0.75rem; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.gallery-item figcaption { font-family: var(--font-ui); font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gallery-remove { position: absolute; top: 0.25rem; right: 0.25rem; background: var(--raised); opacity: 0; transition: opacity 0.12s; }
+.gallery-item:hover .gallery-remove, .gallery-remove:focus-visible { opacity: 1; }
+.gallery-empty { margin: 0; font-family: var(--font-ui); font-size: 0.85rem; color: var(--muted); }
+.gallery-actions { display: flex; gap: 1rem; font-family: var(--font-ui); font-size: 0.8rem; }
+.gallery-actions .link-button { display: inline-flex; align-items: center; gap: 0.3rem; }
+.gallery-editor.hidden { display: none; }
+
+/* Images embedded the Obsidian way (![[map.png]]) inside any text. */
+.cm-md-image-wrap img.cm-md-image { max-width: 100%; }
+
+/* Dragging a section by its grip to move it. */
+.section-grip { display: inline-flex; align-items: center; padding: 0.15rem; color: var(--muted); cursor: grab; border-radius: 4px; opacity: 0.55; }
+.section-grip:hover { opacity: 1; background: var(--surface); }
+.section-row.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+.section-row.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
+
+/* A list layer first: the document as one outline, each section's name over its items. */
+.section-grid.primary-list .section-name-line { padding-top: 8px; }
+.section-grid.primary-list .section-name { font-size: 1.05em; }
+.section-grid.primary-list .section-row { border-top-style: dashed; }

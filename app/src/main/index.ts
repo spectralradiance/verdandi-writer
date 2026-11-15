@@ -15,7 +15,7 @@ import { Dictionary } from './dictionary'
 import { exportMarkdown, plainLinks, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
-  convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
+  addAttachments, convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
   changeLayers, readViews, saveViews, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
 } from './folderDocument'
 import { LexiconStore } from './lexicon'
@@ -496,6 +496,23 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.documentsReadViews, (_event, folder: unknown) => readViews(guard.resolve(folder)))
   ipcMain.handle(IPC.documentsSaveViews, (_event, folder: unknown, views: unknown) => saveViews(guard.resolve(folder), views))
+  // Images come from anywhere the user picks or drops them; only image files are copied, and only into the document.
+  ipcMain.handle(IPC.documentsAddImages, async (event, folder: unknown, files: unknown) => {
+    const target = guard.resolve(folder)
+    let sources = Array.isArray(files) ? files.filter((file): file is string => typeof file === 'string' && file.length > 0) : null
+    if (!sources) {
+      const options: OpenDialogOptions = {
+        title: 'Add images',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS].map((extension) => extension.slice(1)) }],
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+      if (result.canceled) return []
+      sources = result.filePaths
+    }
+    return addAttachments(target, sources)
+  })
   ipcMain.handle(IPC.filesReveal, async (_event, target: unknown) => {
     const resolved = guard.resolve(target)
     if ((await stat(resolved)).isDirectory()) {
