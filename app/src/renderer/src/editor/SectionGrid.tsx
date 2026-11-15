@@ -15,7 +15,7 @@ import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from '.
 import {
   applyChange, type CellKind, changedRun, continuedName, deleteSection, fromSectionOffset, isFolderText, joinSections, mergeIntoPrevious, moveSection, partition,
   project, type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble,
-  splitSection, toSectionOffset,
+  splitFromLayer, splitSection, toSectionOffset,
 } from './sectionModel'
 
 /**
@@ -83,6 +83,8 @@ export interface SectionGridProps {
   onSelectWord?: (word: WordInContext) => void
   /** Rename, add or delete the document's layers (a document folder only). */
   onManageLayers?: () => void
+  /** Opens a section's fields (a document folder's section, by its id) to edit them. */
+  onEditFields?: (key: string, title: string) => void
 }
 
 const MIN_ROW_HEIGHT = 56
@@ -131,15 +133,19 @@ function writeRecord(key: string, value: Record<string, unknown>): void {
 
 export function SectionGrid({
   ref, path, initialText, title, layers, view, onViewChange, fields, live, focusMode, readOnly = false,
-  onDocChanged, onSave, onBlur, onFocus, onSelectWord, onManageLayers,
+  onDocChanged, onSave, onBlur, onFocus, onSelectWord, onManageLayers, onEditFields,
 }: SectionGridProps) {
   // The layers are fixed for the grid's life: changing them reloads the document.
   const [model] = useState(() => {
     const names = layers ? layers.map((layer) => layer.name) : ['notes']
-    return { kinds: ['output', ...names] as CellKind[], classify: (layers ? names : null) as LayerNames, names }
+    return {
+      kinds: ['output', ...names] as CellKind[], classify: (layers ? names : null) as LayerNames, names,
+      gallery: layers ? layers.filter((layer) => layer.kind === 'gallery').map((layer) => layer.name) : [],
+      /** Layers whose blocks stay with a section split from its text (a one-file document's notes are anchored). */
+      stay: layers ? layers.filter((layer) => !layer.anchored).map((layer) => layer.name) : [],
+    }
   })
-  const { kinds, classify } = model
-  const gallery = layers ? layers.filter((layer) => layer.kind === 'gallery').map((layer) => layer.name) : []
+  const { kinds, classify, gallery } = model
   // Built once; the model and the rendered rows both start from it.
   const [initial] = useState(() => {
     const sections = partition(initialText, classify)
@@ -369,11 +375,11 @@ export function SectionGrid({
    * the text after them continues as “Name (continued)”. Null when the cursor is not
    * in the section's text, or the section would be left with only its heading.
    */
-  const planSplit = useCallback((id: number): string | null => {
+  const planSplit = useCallback((id: number, kind: CellKind = 'output'): string | null => {
     const index = rows.current.findIndex((row) => row.id === id)
     const row = rows.current[index]
-    const handle = handles.current.get(cellKey(id, 'output'))
-    if (!row || !handle) return null
+    const handle = handles.current.get(cellKey(id, kind))
+    if (!row || !handle || model.gallery.includes(kind)) return null
     const text = handle.getText()
     const cursor = handle.cursor()
     const selected = handle.getSelection()
@@ -388,16 +394,20 @@ export function SectionGrid({
     }
     const first = nextText(lineAt(start))
     if (first >= lines.length) return null
-    const shown = shownLineNumbers(row.cells.output)
+    const shown = shownLineNumbers(row.cells[kind])
+    // A selection that ends at the start of a line does not take that line.
+    const last = selected ? Math.max(first, lineAt(end) - (end > start && text[end - 1] === '\n' ? 1 : 0)) : lines.length - 1
+    if (kind !== 'output') {
+      // From a layer: those lines become a section of their own, after this one.
+      return splitFromLayer(getText(), index, kind, shown[first], shown[last] + 1, NEW_SECTION_NAME, classify)
+    }
     let rest: { line: number; name: string } | undefined
     if (selected) {
-      // A selection that ends at the start of a line does not take that line.
-      const last = lineAt(end) - (end > start && text[end - 1] === '\n' ? 1 : 0)
-      const after = nextText(Math.max(last, first) + 1)
+      const after = nextText(last + 1)
       if (after < lines.length) rest = { line: shown[after], name: continuedName(row.title) }
     }
-    return splitSection(getText(), index, shown[first], NEW_SECTION_NAME, rest, classify)
-  }, [getText, classify])
+    return splitSection(getText(), index, shown[first], NEW_SECTION_NAME, rest, classify, model.stay)
+  }, [getText, classify, model])
 
   /**
    * Shows the name box. Deferred, so a menu that is closing has given focus back
@@ -408,10 +418,10 @@ export function SectionGrid({
   }, [])
 
   /** Starts a named section at the cursor (see `planSplit`), then asks for its name. */
-  const splitAtCursor = useCallback((id: number) => {
+  const splitAtCursor = useCallback((id: number, kind: CellKind = 'output') => {
     if (readOnly) return false
     const index = rows.current.findIndex((row) => row.id === id)
-    if (!applyText(planSplit(id))) return false
+    if (!applyText(planSplit(id, kind))) return false
     const created = rows.current[index + 1]
     if (created) startRename(created.id)
     return true
@@ -435,7 +445,7 @@ export function SectionGrid({
           return true
         },
       },
-      { key: 'Mod-Alt-s', run: () => kind === 'output' && splitAtCursor(id) },
+      { key: 'Mod-Alt-s', run: () => splitAtCursor(id, kind) },
     ]
   }, [moveBetweenRows, withCell, splitAtCursor, primary, secondaries, kinds])
 
@@ -610,22 +620,32 @@ export function SectionGrid({
       disabled: !nextRow,
       onClick: withText((text) => mergeIntoPrevious(text, index + 1, classify)),
     })
-    if (primary === 'output') {
-      const inText = active.current?.id === rowMeta.id && active.current.kind === 'output'
-      const possible = inText && planSplit(rowMeta.id) !== null
-      const selection = inText && (handles.current.get(cellKey(rowMeta.id, 'output'))?.getSelection() ?? '') !== ''
+    {
+      // The split starts from the layer the cursor is in: the text, or another layer.
+      const cell = active.current?.id === rowMeta.id && !gallery.includes(active.current.kind) ? active.current.kind : null
+      const kind = cell ?? primary
+      const possible = cell !== null && planSplit(rowMeta.id, cell) !== null
+      const selection = cell !== null && (handles.current.get(cellKey(rowMeta.id, cell))?.getSelection() ?? '') !== ''
+      const fromText = kind === 'output'
+      const layerName = kindLabel(kind).toLowerCase()
       items.push({
-        label: selection ? 'New section from the selection' : 'New section from this paragraph',
+        label: selection ? 'New section from the selection' : fromText ? 'New section from this paragraph' : `New section from here in the ${layerName}`,
         hint: 'Ctrl+Alt+S',
         disabled: !possible,
         title: possible
-          ? selection
-            ? 'The selected paragraphs become a named section; the text after them continues the current section'
-            : 'Starts a named section at the paragraph the cursor is in'
-          : inText
-            ? 'The section would be left with nothing but its heading: put the cursor in a later paragraph'
-            : 'Put the cursor in a paragraph of this section first',
-        onClick: () => splitAtCursor(rowMeta.id),
+          ? fromText
+            ? selection
+              ? 'The selected paragraphs become a named section; the text after them continues the current section'
+              : 'Starts a named section at the paragraph the cursor is in'
+            : selection
+              ? `The selected lines leave this section’s ${layerName} and become a new section after it, with blank text`
+              : `The ${layerName} from the cursor down becomes a new section after this one, with blank text`
+          : cell === null
+            ? 'Put the cursor in this section’s text or one of its layers first'
+            : fromText
+              ? 'The section would be left with nothing but its heading: put the cursor in a later paragraph'
+              : `Put the cursor on a line of the ${layerName}`,
+        onClick: () => splitAtCursor(rowMeta.id, kind),
       })
     }
     items.push('separator')
@@ -641,6 +661,15 @@ export function SectionGrid({
         { label: `${shown ? 'Hide' : 'Show'} the ${sideLabel}`, onClick: () => setRowShown(rowMeta.key, !shown) },
         { label: 'Fit height to the text', disabled: !sized, onClick: () => setRowHeight(rowMeta.key, null) },
       )
+    }
+    if (onEditFields && titled) {
+      const saved = fields !== undefined && rowMeta.key in fields
+      items.push({
+        label: 'Fields…',
+        disabled: !saved,
+        title: saved ? 'Status, tags and other fields, kept in the section file’s frontmatter' : 'The section has no file yet: it gets one when it saves, in a moment',
+        onClick: () => onEditFields(rowMeta.key, rowMeta.title ?? ''),
+      })
     }
     if (onManageLayers) items.push({ label: 'Layers…', title: 'Add, rename or delete this document’s layers', onClick: onManageLayers })
     if (titled) {

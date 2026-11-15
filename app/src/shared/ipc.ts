@@ -169,7 +169,7 @@ export interface LexiconEntry {
   note: string
 }
 
-import type { Layer, LayerChange } from './layers'
+import type { FieldChange, Layer, LayerChange } from './layers'
 import type { SavedView } from './views'
 import type { AiConfig, AiEvent, AiMessage, AiRunRequest, AiSettingsState, SecretName } from './ai'
 import type { Preferences } from './preferences'
@@ -308,6 +308,11 @@ export interface VerdandiApi {
     undoConvert(folder: string): Promise<string>
     /** Adds, renames, deletes or changes one of a document folder's layers, rewriting the section files it touches. */
     changeLayers(folder: string, change: LayerChange): Promise<void>
+    /**
+     * Changes one section's fields (its file's frontmatter). `expectedMtimeMs` is the
+     * document's token as last saved; returns the new token and the section's fields.
+     */
+    setFields(folder: string, id: string, change: FieldChange, expectedMtimeMs: number | null): Promise<{ mtimeMs: number; fields: Record<string, unknown> }>
     /** A document folder's saved views (`.verdandi/views.yaml`). */
     readViews(folder: string): Promise<SavedView[]>
     saveViews(folder: string, views: SavedView[]): Promise<void>
@@ -407,6 +412,7 @@ export const IPC = {
   documentsConvert: 'documents:convert',
   documentsUndoConvert: 'documents:undoConvert',
   documentsChangeLayers: 'documents:changeLayers',
+  documentsSetFields: 'documents:setFields',
   documentsReadViews: 'documents:readViews',
   documentsSaveViews: 'documents:saveViews',
   documentsAddImages: 'documents:addImages',

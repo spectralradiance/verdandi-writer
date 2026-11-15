@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import type { TextDocument, TextFormat, WriteRequest, WriteResult } from '../shared/ipc'
 import {
-  assembleSection, convertOneFile, type DisassembledSection, disassembleDocument, fileNameFor, INTRODUCTION,
+  assembleSection, changeSectionFields, convertOneFile, type DisassembledSection, type FieldChange, disassembleDocument, fileNameFor, INTRODUCTION,
   joinFrontmatter, type Layer, type LayerChange, layerNameError, LAYER_KINDS, newDocumentNote, newSectionId, NOTES_LAYER, parseDocumentNote, parseSectionFile, type SectionFile, setFields,
   removeLayerBlocks, renameLayerBlocks, sectionFields, stableId, tidySectionText, uniqueName, writeDocumentNote, writeSectionFile,
 } from '../shared/layers'
@@ -404,6 +404,32 @@ export async function changeLayers(folder: string, change: LayerChange, backups:
     const result = await writeTextDocument(current.note.path, { path: current.note.path, text: note, format: current.note.format, expectedMtimeMs: null, force: true }, backups)
     if (!result.ok) throw new Error(`Couldn’t write ${path.basename(current.note.path)}.`)
   }
+}
+
+/**
+ * Changes one section's fields in its file's frontmatter, keeping its comments and
+ * the order of the other fields. `expectedMtimeMs` is the document's token as the
+ * editor last saved it, so a change made outside meanwhile is not written over.
+ * Returns the document's new token and the section's fields.
+ */
+export async function setSectionFields(
+  folder: string, id: string, change: FieldChange, expectedMtimeMs: number | null, backups: BackupStore,
+): Promise<{ mtimeMs: number; fields: Record<string, unknown> }> {
+  const current = await loadFolder(folder)
+  if (expectedMtimeMs !== null && expectedMtimeMs !== current.token) {
+    throw new Error('The document changed on disk. Reload it, then try again.')
+  }
+  const section = current.sections.find((candidate) => candidate.id === id)
+  if (!section) throw new Error('That section has no file yet. Try again once it has saved.')
+  const yaml = changeSectionFields(section.parsed.yaml, change)
+  const content = writeSectionFile({ yaml, text: section.parsed.text }, current.layers)
+  if (content !== section.raw) {
+    const result = await writeTextDocument(section.file, { path: section.file, text: content, format: section.format, expectedMtimeMs: null, force: true }, backups)
+    if (!result.ok) throw new Error(`Couldn’t write ${section.base}.md.`)
+  }
+  const saved = await loadFolder(folder)
+  const fresh = saved.sections.find((candidate) => candidate.id === id)
+  return { mtimeMs: saved.token, fields: sectionFields(fresh?.parsed.yaml ?? null) }
 }
 
 const viewsFile = (folder: string) => path.join(folder, '.verdandi', VIEWS_FILE)
