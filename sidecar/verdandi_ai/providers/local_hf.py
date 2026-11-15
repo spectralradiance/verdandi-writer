@@ -3,13 +3,21 @@
 One model at a time, loaded lazily in 4-bit NF4 (float16 fallback), CUDA only
 (the prototype's guard: no silent CPU offload), and unloaded after an idle timeout so
 VRAM is returned. The lock is the "GPU lane": local jobs run one at a time.
+
+Downloading a model (several GB the first time) and loading it run as background jobs
+while the run sends a progress notice every few seconds: a stream that goes quiet for
+minutes is dropped by the app's HTTP client, and a job outlives a dropped run, so the
+next run picks up where it got to instead of starting the download again.
 """
 
 from __future__ import annotations
 
 import gc
 import importlib.util
+import os
 import threading
+import time
+from fnmatch import fnmatch
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -27,14 +35,76 @@ def missing_libraries() -> list[str]:
     return [name for name in REQUIRED_LIBRARIES if importlib.util.find_spec(name) is None]
 
 
-def is_downloaded(name: str) -> bool:
-    """Whether the model's files are in the Hugging Face cache (a local folder counts)."""
-    try:
-        from huggingface_hub import try_to_load_from_cache
+# The files a model needs: weights, configuration and tokenizer (not other formats' weights).
+DOWNLOAD_PATTERNS = ("*.json", "*.safetensors", "*.txt", "*.model", "*.tiktoken", "*.py")
+PROGRESS_SECONDS = 5.0
+GB = 1024**3
 
-        return isinstance(try_to_load_from_cache(name, "config.json"), str)
+
+class Job:
+    """Work on a background thread that outlives the run that started it."""
+
+    def __init__(self, label: str, work: Callable[["Job"], Any]) -> None:
+        self.done = threading.Event()
+        self.error: BaseException | None = None
+        self.result: Any = None
+        self.started = time.monotonic()
+        self.total: int | None = None  # bytes expected, for a download
+        self._work = work
+        threading.Thread(target=self._run, name=label, daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            self.result = self._work(self)
+        except BaseException as error:  # handed to whichever run waits for it
+            self.error = error
+        finally:
+            self.done.set()
+
+
+def cache_folder(name: str) -> str | None:
+    """Where the Hugging Face cache keeps a model's files, or None for a model in a local folder."""
+    if os.path.isdir(name):
+        return None
+    from huggingface_hub import constants
+
+    return os.path.join(constants.HF_HUB_CACHE, "models--" + name.replace("/", "--"))
+
+
+def downloaded_bytes(name: str) -> int:
+    folder = cache_folder(name)
+    if folder is None:
+        return 0
+    total = 0
+    for root, _dirs, files in os.walk(os.path.join(folder, "blobs")):
+        for file in files:
+            try:
+                total += os.path.getsize(os.path.join(root, file))
+            except OSError:
+                pass
+    return total
+
+
+def download_model(name: str, job: Job) -> None:
+    """Fetches a model's files into the cache; a model already there only costs a quick check."""
+    if os.path.isdir(name):
+        return
+    from huggingface_hub import HfApi, snapshot_download
+
+    try:
+        info = HfApi().model_info(name, files_metadata=True)
+        job.total = sum(
+            file.size or 0 for file in info.siblings or [] if any(fnmatch(file.rfilename, pattern) for pattern in DOWNLOAD_PATTERNS)
+        )
     except Exception:
-        return True  # can't tell; say nothing about a download
+        job.total = None  # offline, or the size is unknown; the notice says so
+    try:
+        snapshot_download(name, allow_patterns=list(DOWNLOAD_PATTERNS))
+    except Exception as error:
+        try:  # offline: fine if the files are all here already
+            snapshot_download(name, allow_patterns=list(DOWNLOAD_PATTERNS), local_files_only=True)
+        except Exception:
+            raise ProviderError("unavailable", f"Couldn't download {name}: {error}") from error
 
 
 class LocalHFProvider:
@@ -49,6 +119,7 @@ class LocalHFProvider:
         self._lane = threading.Lock()
         self._loaded: tuple[str, Any, Any] | None = None  # (name, model, tokenizer)
         self._idle_timer: threading.Timer | None = None
+        self._jobs: dict[tuple[str, str], Job] = {}  # ("download" | "load", model name)
 
     def health(self) -> ProviderHealth:
         status = self._torch_status()
@@ -83,8 +154,10 @@ class LocalHFProvider:
                 self._idle_timer.cancel()
             name = profile.model or DEFAULT_MODEL
             if not (self._loaded and self._loaded[0] == name):
-                first = "" if is_downloaded(name) else " It isn't on this computer yet, so it is downloaded first (several GB); that can take a while."
-                yield {"type": "notice", "message": f"Loading {name} onto the GPU…{first}"}
+                download = self._job("download", name, lambda job: download_model(name, job))
+                yield from self._wait(download, lambda: self._download_message(name, download))
+                load = self._job("load", name, lambda _job: self._load_in_background(name, profile.params))
+                yield from self._wait(load, lambda: f"Loading {name} onto the GPU… ({int(time.monotonic() - load.started)} s)")
             model, tokenizer = self._ensure_loaded(name, profile.params)
             yield from self._generate(model, tokenizer, request)
         finally:
@@ -92,6 +165,43 @@ class LocalHFProvider:
             self._lane.release()
 
     # -- internals -------------------------------------------------------------
+
+    def _load_in_background(self, name: str, params: dict[str, Any]) -> tuple[Any, Any]:
+        loaded = self._ensure_loaded(name, params)
+        # The run that asked for it may be gone; the model still goes after an idle while.
+        self._schedule_unload()
+        return loaded
+
+    def _job(self, kind: str, name: str, work: Callable[[Job], Any]) -> Job:
+        """The job of this kind for this model: the one still running, or a new one."""
+        key = (kind, name)
+        job = self._jobs.get(key)
+        if job is None or job.done.is_set():
+            job = Job(f"local-{kind}", work)
+            self._jobs[key] = job
+        return job
+
+    @staticmethod
+    def _wait(job: Job, message: Callable[[], str]) -> Iterator[StreamEvent]:
+        """Says how a job is going every few seconds until it ends, then raises its error if it failed."""
+        if not job.done.wait(0.5):
+            yield {"type": "notice", "message": message()}
+            while not job.done.wait(PROGRESS_SECONDS):
+                yield {"type": "notice", "message": message()}
+        if isinstance(job.error, ProviderError):
+            raise job.error
+        if job.error is not None:
+            raise ProviderError("unavailable", f"{type(job.error).__name__}: {job.error}") from job.error
+
+    @staticmethod
+    def _download_message(name: str, job: Job) -> str:
+        done = downloaded_bytes(name)
+        if job.total:
+            share = min(1.0, done / job.total)
+            return f"Downloading {name}: {done / GB:.1f} of {job.total / GB:.1f} GB ({share:.0%}). Only the first time."
+        if done:
+            return f"Downloading {name}: {done / GB:.1f} GB so far. Only the first time."
+        return f"Getting {name} ready…"
 
     def _ensure_loaded(self, name: str, params: dict[str, Any]) -> tuple[Any, Any]:
         if self._loaded and self._loaded[0] == name:

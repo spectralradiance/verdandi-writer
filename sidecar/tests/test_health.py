@@ -154,3 +154,30 @@ def test_local_model_needs_its_libraries(monkeypatch) -> None:  # type: ignore[n
     assert "transformers, accelerate not installed" in (health.detail or "")
     monkeypatch.setattr(local_hf, "missing_libraries", lambda: [])
     assert provider.health().configured is True
+
+
+def test_a_slow_job_sends_progress_and_is_shared(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import threading
+
+    import pytest
+
+    from verdandi_ai.ai_types import ProviderError
+    from verdandi_ai.providers import local_hf
+
+    monkeypatch.setattr(local_hf, "PROGRESS_SECONDS", 0.05)
+    provider = local_hf.LocalHFProvider(lambda: {})
+    release = threading.Event()
+    job = provider._job("download", "m", lambda _job: release.wait(5))
+    # A second run while it is still going waits on the same job instead of starting another.
+    assert provider._job("download", "m", lambda _job: None) is job
+    events = provider._wait(job, lambda: "still going")
+    assert next(events) == {"type": "notice", "message": "still going"}
+    assert next(events)["type"] == "notice"
+    release.set()
+    assert list(events) in ([], [{"type": "notice", "message": "still going"}])
+
+    failed = provider._job("load", "m", lambda _job: (_ for _ in ()).throw(RuntimeError("CUDA out of memory")))
+    with pytest.raises(ProviderError, match="CUDA out of memory"):
+        list(provider._wait(failed, lambda: "loading"))
+    # A finished job is replaced by a new one next time.
+    assert provider._job("load", "m", lambda _job: None) is not failed
