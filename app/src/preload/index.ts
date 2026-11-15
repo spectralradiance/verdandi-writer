@@ -52,6 +52,9 @@ const api: VerdandiApi = {
     create: (parent, name) => ipcRenderer.invoke(IPC.documentsCreate, parent, name),
     convert: (path) => ipcRenderer.invoke(IPC.documentsConvert, path),
     undoConvert: (folder) => ipcRenderer.invoke(IPC.documentsUndoConvert, folder),
+    changeLayers: (folder, change) => ipcRenderer.invoke(IPC.documentsChangeLayers, folder, change),
+    readViews: (folder) => ipcRenderer.invoke(IPC.documentsReadViews, folder),
+    saveViews: (folder, views) => ipcRenderer.invoke(IPC.documentsSaveViews, folder, views),
   },
   dictionary: {
     status: () => ipcRenderer.invoke(IPC.dictionaryStatus),

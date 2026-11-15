@@ -12,14 +12,13 @@ import { ExportDialog } from './ExportDialog'
 import { type AiWorkspace, AiPanel } from './AiPanel'
 import { AiSettings } from './AiSettings'
 import type { WordInContext } from './editor/MarkdownEditor'
-import type { CellKind } from './editor/sectionModel'
 import { type Drawer, SidePanel } from './SidePanel'
 import { type LexicalQuery, LexicalPanel } from './LexicalPanel'
 import { readPref, writePref } from './prefs'
 import { StatsDialog } from './StatsDialog'
 import { StatusBar } from './StatusBar'
 import { type ActivePane, errorMessage, type OpenTarget, parseTarget, sameTarget } from './target'
-import { IconButton, ModeToggles, ViewSwitch } from './Toolbar'
+import { IconButton, ModeToggles } from './Toolbar'
 import { SearchPanel } from './SearchPanel'
 import { ResizeHandle } from './ResizeHandle'
 import { SettingsDialog } from './SettingsDialog'
@@ -67,17 +66,6 @@ export function App() {
   const [active, setActive] = useState<ActivePane | null>(null)
   const [infos, setInfos] = useState<Record<string, DocumentInfo | null>>({})
   const [docSections, setDocSections] = useState<Record<string, SectionSummary[]>>({})
-  // Before the two-column view there was one editor showing the text, the notes, or both.
-  const legacyView = readPref('notesView')
-  const [primary, setPrimary] = useState<CellKind>(() => {
-    const stored = readPref('primary') ?? legacyView
-    return stored === 'notes' ? 'notes' : 'output'
-  })
-  const [secondaryShown, setSecondaryShown] = useState(() => {
-    const stored = readPref('secondary')
-    if (stored !== null) return stored !== 'false'
-    return legacyView === null || legacyView === 'all'
-  })
   const [reloadToken, setReloadToken] = useState(0)
   const [todayWords, setTodayWords] = useState<number | null>(null)
   const [drawer, setDrawer] = useState<Drawer | null>(() => {
@@ -275,16 +263,6 @@ export function App() {
     })
   }, [])
   const toggleFocus = useCallback(() => setFocusMode((value) => !value), [])
-  const changePrimary = useCallback((next: CellKind) => {
-    setPrimary(next)
-    writePref('primary', next)
-    writePref('notesView', null)
-  }, [])
-  const changeSecondaryShown = useCallback((next: boolean) => {
-    setSecondaryShown(next)
-    writePref('secondary', String(next))
-    writePref('notesView', null)
-  }, [])
 
   const changePreferences = useCallback((next: Preferences) => {
     applyAppearance(next)
@@ -457,7 +435,7 @@ export function App() {
       if (!active || !handle) return null
       // Notes blocks are the writer's scaffolding, not text to analyze.
       return {
-        text: stripNotes(handle.getText()),
+        text: stripNotes(handle.getText(), handle.layerNames()),
         selection: handle.getSelection(),
         document: documentTitle,
         section: handle.currentSection()?.title ?? '',
@@ -468,7 +446,7 @@ export function App() {
       const handle = active ? panes.current.get(active.path) : undefined
       const current = handle?.currentSection()
       if (!active || !handle || !current) return null
-      const preface = splitSections(handle.getText()).find((candidate) => candidate.title === null)?.notes
+      const preface = splitSections(handle.getText(), handle.layerNames()).find((candidate) => candidate.title === null)?.notes
       return {
         document: documentTitle,
         section: current.title ?? documentTitle,
@@ -561,12 +539,9 @@ export function App() {
             path={target.path}
             live={live}
             focusMode={focusMode}
-            primary={primary}
-            secondaryShown={secondaryShown}
             headerActions={(
               <>
                 <IconButton icon={ChartColumn} label="Statistics" title="Word counts per section, goal and daily progress" onClick={() => setShowStats(true)} />
-                <ViewSwitch primary={primary} onPrimary={changePrimary} secondaryShown={secondaryShown} onSecondaryShown={changeSecondaryShown} />
                 <ModeToggles {...mode} />
               </>
             )}

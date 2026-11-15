@@ -1,6 +1,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 
 import { type SectionSummary, summarizeSections } from '../../shared/document'
+import { layerNamesOf } from '../../shared/layers'
 import { folderName } from '../../shared/format'
 import type { FolderListing } from '../../shared/ipc'
 import { joinPath, samePath } from '../../shared/paths'
@@ -78,7 +79,7 @@ function NameInput({ initial, placeholder, depth, onSubmit, onCancel }: {
 function useFileSections(path: string, enabled: boolean): SectionSummary[] {
   const [sections, setSections] = useState<SectionSummary[]>([])
   const load = useCallback(() => window.verdandi.files.read(path, { allowMissing: true }).then(
-    (document) => setSections(document.mtimeMs === null ? [] : summarizeSections(document.text).filter((section) => section.title !== null)),
+    (document) => setSections(document.mtimeMs === null ? [] : summarizeSections(document.text, layerNamesOf(document)).filter((section) => section.title !== null)),
     () => setSections([]),
   ), [path])
   useEffect(() => {

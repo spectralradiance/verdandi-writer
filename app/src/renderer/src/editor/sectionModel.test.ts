@@ -235,3 +235,31 @@ describe('changedRun', () => {
     expect(changedRun(['a', 'b', 'c'], ['a', 'B', 'c'])).toEqual({ start: 1, endBefore: 2, endAfter: 2 })
   })
 })
+
+describe('a document with several layers', () => {
+  const layers = ['notes', 'outline']
+  const text = '<!-- section: One {#a1} -->\nFirst.\n\n::: notes\nA note.\n:::\n\n::: outline -\n- beat\n:::'
+
+  it('shows each layer on its own, and the text without any of them', () => {
+    const [one] = partition(text, layers)
+    expect(one.id).toBe('a1')
+    expect(project(one.text, 'output', layers).text).toBe('First.')
+    expect(project(one.text, 'notes', layers).text).toBe('A note.')
+    expect(project(one.text, 'outline', layers).text).toBe('- beat')
+    for (const kind of ['output', 'notes', 'outline']) expect(sectionText(project(one.text, kind, layers))).toBe(one.text)
+  })
+
+  it('starts a block of the layer typed into', () => {
+    const plain = '<!-- section: Two {#b2} -->\nSecond.'
+    const outline = project(plain, 'outline', layers)
+    expect(outline.empty).toBe(true)
+    expect(sectionText(edit(outline, 0, 0, '- first'))).toBe('<!-- section: Two {#b2} -->\nSecond.\n\n::: outline\n- first\n:::')
+  })
+
+  it('leaves blocks of names that are not layers in the text', () => {
+    const odd = '# A\nText.\n::: aside\nnot a layer\n:::'
+    expect(project(odd, 'output', layers).text).toBe('# A\nText.\n::: aside\nnot a layer\n:::')
+    // A one-file document knows notes alone.
+    expect(project('# A\n::: outline\nx\n:::', 'output').text).toBe('# A\n::: outline\nx\n:::')
+  })
+})

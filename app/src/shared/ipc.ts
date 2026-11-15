@@ -80,6 +80,10 @@ export interface TextDocument {
   size: number
   /** A document folder shown as one text (PLAN.md §3b); `mtimeMs` then changes when any of its files does. */
   folder?: boolean
+  /** A document folder's layers, in order. A one-file document has its notes alone. */
+  layers?: Layer[]
+  /** A document folder's sections' frontmatter fields (besides id, title and heading), by section id. */
+  fields?: Record<string, Record<string, unknown>>
 }
 
 export interface WriteRequest {
@@ -163,6 +167,8 @@ export interface LexiconEntry {
   note: string
 }
 
+import type { Layer, LayerChange } from './layers'
+import type { SavedView } from './views'
 import type { AiConfig, AiEvent, AiMessage, AiRunRequest, AiSettingsState, SecretName } from './ai'
 import type { Preferences } from './preferences'
 
@@ -285,6 +291,11 @@ export interface VerdandiApi {
     convert(path: string): Promise<string>
     /** Puts the one-file original back, trashes the folder, and returns the file's path. */
     undoConvert(folder: string): Promise<string>
+    /** Adds, renames, deletes or changes one of a document folder's layers, rewriting the section files it touches. */
+    changeLayers(folder: string, change: LayerChange): Promise<void>
+    /** A document folder's saved views (`.verdandi/views.yaml`). */
+    readViews(folder: string): Promise<SavedView[]>
+    saveViews(folder: string, views: SavedView[]): Promise<void>
   }
   dictionary: {
     status(): Promise<DictionaryStatus>
@@ -374,6 +385,9 @@ export const IPC = {
   documentsCreate: 'documents:create',
   documentsConvert: 'documents:convert',
   documentsUndoConvert: 'documents:undoConvert',
+  documentsChangeLayers: 'documents:changeLayers',
+  documentsReadViews: 'documents:readViews',
+  documentsSaveViews: 'documents:saveViews',
   dictionaryStatus: 'dictionary:status',
   dictionaryChoose: 'dictionary:choose',
   dictionaryDownload: 'dictionary:download',

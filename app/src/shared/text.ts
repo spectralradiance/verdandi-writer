@@ -1,5 +1,5 @@
 import type { LineEnding, TextEncodingName } from './ipc'
-import { classifyLines } from './notes'
+import { classifyLines, type LayerNames } from './notes'
 
 const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
 
@@ -31,11 +31,11 @@ export interface Heading {
 }
 
 /** ATX headings outside fenced code blocks and notes blocks, for the outline. */
-export function extractHeadings(text: string): Heading[] {
+export function extractHeadings(text: string, layers?: LayerNames): Heading[] {
   const headings: Heading[] = []
   let fence: string | null = null
   const lines = text.split('\n')
-  const roles = classifyLines(lines)
+  const roles = classifyLines(lines, layers)
   lines.forEach((line, index) => {
     if (roles[index] !== 'output') return
     const fenceMatch = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
@@ -134,12 +134,12 @@ export function sectionMarkerLine(name: string, attributes: { id?: string | null
   return `<!-- section: ${clean}${parts.length ? ` {${parts.join(' ')}}` : ''} -->`
 }
 
-/** Section markers outside fenced code blocks and notes blocks. */
-export function extractSectionMarkers(text: string): SectionMarker[] {
+/** Section markers outside fenced code blocks and layer blocks. */
+export function extractSectionMarkers(text: string, layers?: LayerNames): SectionMarker[] {
   const markers: SectionMarker[] = []
   let fence: string | null = null
   const lines = text.split('\n')
-  const roles = classifyLines(lines)
+  const roles = classifyLines(lines, layers)
   lines.forEach((line, index) => {
     if (roles[index] !== 'output') return
     const fenceMatch = /^\s{0,3}(`{3,}|~{3,})/.exec(line)
@@ -164,8 +164,8 @@ export function splitsAtMarkersOnly(markers: readonly Pick<SectionMarker, 'id'>[
 }
 
 /** Removes section marker lines (for exporting the text). */
-export function stripSectionMarkers(text: string): string {
-  const drop = new Set(extractSectionMarkers(text).map((marker) => marker.line - 1))
+export function stripSectionMarkers(text: string, layers?: LayerNames): string {
+  const drop = new Set(extractSectionMarkers(text, layers).map((marker) => marker.line - 1))
   if (drop.size === 0) return text
   return text.split('\n').filter((_, index) => !drop.has(index)).join('\n').replace(/\n{3,}/g, '\n\n')
 }

@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 
 import { parseDocumentNote } from '../shared/layers'
 import { BackupStore, PathGuard } from './fileService'
-import { convertFileToFolder, isFolderDocument, ORIGINAL_DIR, readFolderDocument, undoConversion, writeFolderDocument } from './folderDocument'
+import {
+  changeLayers, convertFileToFolder, isFolderDocument, ORIGINAL_DIR, readFolderDocument, readViews, saveViews, undoConversion, writeFolderDocument,
+} from './folderDocument'
 
 const ids = () => {
   let count = 0
@@ -179,5 +181,48 @@ describe('undoConversion', () => {
     await writeFile(file, 'new')
     await expect(undoConversion(converted.folder, trash)).rejects.toThrow(/already exists/)
     expect(await readdir(path.join(converted.folder, ORIGINAL_DIR))).toEqual(['Eras.md'])
+  })
+})
+
+describe('layers and views of a document folder', () => {
+  async function converted() {
+    const { parent, file } = await folderWith('Eras.md', SOURCE.replace(/\r\n/g, '\n'))
+    const { folder } = await convertFileToFolder(file, ids())
+    const backups = new BackupStore(path.join(parent, '.backups'), new PathGuard(() => [parent]))
+    return { folder, backups }
+  }
+
+  it('adds, renames and deletes layers across the section files', async () => {
+    const { folder, backups } = await converted()
+    await changeLayers(folder, { add: { name: 'Outline', kind: 'list', anchored: false } }, backups)
+    let document = await readFolderDocument(folder)
+    expect(document.layers?.map((layer) => [layer.name, layer.kind])).toEqual([['notes', 'prose'], ['outline', 'list']])
+    await expect(changeLayers(folder, { add: { name: 'notes', kind: 'prose', anchored: false } }, backups)).rejects.toThrow(/already/)
+    await expect(changeLayers(folder, { add: { name: 'text', kind: 'prose', anchored: false } }, backups)).rejects.toThrow()
+
+    await changeLayers(folder, { rename: 'notes', to: 'remarks' }, backups)
+    expect(await readFile(path.join(folder, 'One.md'), 'utf8')).toBe('---\nid: id1\n---\nFirst.\n\n> [!remarks]\n> A note.\n')
+    document = await readFolderDocument(folder)
+    expect(document.text).toContain('::: remarks\nA note.\n:::')
+
+    await changeLayers(folder, { remove: 'remarks' }, backups)
+    expect(await readFile(path.join(folder, 'One.md'), 'utf8')).toBe('---\nid: id1\n---\nFirst.\n')
+    expect((await readFolderDocument(folder)).layers?.map((layer) => layer.name)).toEqual(['outline'])
+  })
+
+  it('gives each section its fields, and keeps saved views in .verdandi', async () => {
+    const { folder } = await converted()
+    await writeFile(path.join(folder, 'Two.md'), '---\nid: id2\nstatus: draft\ntags: [act-1]\n---\nSecond.\n')
+    const document = await readFolderDocument(folder)
+    expect(document.fields).toEqual({ id1: {}, id2: { status: 'draft', tags: ['act-1'] } })
+
+    expect(await readViews(folder)).toEqual([])
+    await saveViews(folder, [{ name: 'Drafts', primary: 'notes', shown: ['output', 'nonsense'], filter: { status: 'draft' } }])
+    expect(await readFile(path.join(folder, '.verdandi', 'views.yaml'), 'utf8')).toBe(
+      'views:\n  - name: Drafts\n    primary: notes\n    shown:\n      - output\n    filter:\n      status: draft\n',
+    )
+    expect((await readViews(folder))[0]).toMatchObject({ name: 'Drafts', primary: 'notes', shown: ['output'], filter: { status: 'draft' } })
+    await saveViews(folder, [])
+    expect(await readdir(path.join(folder, '.verdandi'))).not.toContain('views.yaml')
   })
 })

@@ -1,26 +1,32 @@
 import type { ChangeDesc } from '@codemirror/state'
 
 import { moveSectionText, sectionLevel, splitSections } from '../../../shared/document'
-import { classifyLines, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from '../../../shared/notes'
+import { blockOpenLine, classifyBlocks, type LayerNames, NOTES_CLOSE_LINE } from '../../../shared/notes'
 import { newSectionId } from '../../../shared/layers'
 import { extractHeadings, extractSectionMarkers, parseMarker, parseSectionMarker, sectionMarkerLine, splitsAtMarkersOnly } from '../../../shared/text'
 
 /**
- * The model behind the two-column editor. The file is split into sections at its
- * `#` headings, and each section is shown as two small editors: its output (the
- * heading and the text) and its notes (the inside of its `::: notes` blocks).
+ * The model behind the sections editor. The file is split into sections at its
+ * `#` headings (a document folder's, at its section markers), and each section is
+ * shown as small editors: its output (the heading and the text) and each of its
+ * layers (the inside of its `::: notes` blocks, or another layer's).
  *
  * Each editor holds a *projection* of its section: the lines it shows, plus the
- * lines it hides (the other kind's text, notes markers, the blank lines around
+ * lines it hides (the other kinds' text, block markers, the blank lines around
  * them), each hidden run anchored after one of the shown lines. An edit in the
  * editor moves the anchors with the text, and the section is put back together
  * from the new text and the hidden runs, so notes stay where they were in the file.
+ *
+ * `layers` is the document's layer names (null for a one-file document, whose only
+ * layer is its notes), so the right blocks are recognized.
  */
 
-export type CellKind = 'output' | 'notes'
+/** The text itself (`output`), or a layer's name. */
+export type CellKind = 'output' | (string & {})
 
 export interface Projection {
   kind: CellKind
+  layers: LayerNames
   /** What the editor shows. */
   text: string
   /** Hidden lines before the first shown line. */
@@ -44,22 +50,25 @@ export interface ModelSection {
   named: boolean
   /** In a document folder: exports show the name as a heading. */
   heading: boolean
+  /** In a document folder: the section file's id, from its marker. */
+  id: string | null
 }
 
 /** Whether the text is a document folder's (its markers carry section ids). */
-export function isFolderText(text: string): boolean {
-  return splitsAtMarkersOnly(extractSectionMarkers(text))
+export function isFolderText(text: string, layers?: LayerNames): boolean {
+  return splitsAtMarkersOnly(extractSectionMarkers(text, layers))
 }
 
 /** Splits a file into sections that cover every line, so joining them gives the file back. */
-export function partition(text: string): ModelSection[] {
+export function partition(text: string, layers?: LayerNames): ModelSection[] {
   const lines = text.split('\n')
-  const titled = splitSections(text).filter((section) => section.title !== null)
+  const titled = splitSections(text, layers).filter((section) => section.title !== null)
   const sections: ModelSection[] = []
   const first = titled[0]?.line ?? lines.length + 1
-  if (first > 1) sections.push({ title: null, named: false, heading: false, text: lines.slice(0, first - 1).join('\n') })
+  if (first > 1) sections.push({ title: null, named: false, heading: false, id: null, text: lines.slice(0, first - 1).join('\n') })
   for (const section of titled) {
-    sections.push({ title: section.title, named: section.named, heading: section.heading, text: lines.slice(section.line - 1, section.endLine).join('\n') })
+    const id = section.named ? (parseMarker(lines[section.line - 1])?.id ?? null) : null
+    sections.push({ title: section.title, named: section.named, heading: section.heading, id, text: lines.slice(section.line - 1, section.endLine).join('\n') })
   }
   return sections
 }
@@ -76,21 +85,22 @@ export function showsPreamble(sections: readonly ModelSection[]): boolean {
 }
 
 /** The section's name as it reads now: its marker's, or its heading. */
-export function sectionTitle(text: string): string | null {
+export function sectionTitle(text: string, layers?: LayerNames): string | null {
   const first = text.split('\n').find((line) => line.trim() !== '')
   const name = first === undefined ? null : parseSectionMarker(first)
-  return name ?? extractHeadings(text)[0]?.text ?? null
+  return name ?? extractHeadings(text, layers)[0]?.text ?? null
 }
 
 /** Which of a section's lines an editor of `kind` shows. */
-function shownLines(lines: readonly string[], kind: CellKind): boolean[] {
-  const roles = classifyLines(lines)
-  if (kind === 'notes') {
+function shownLines(lines: readonly string[], kind: CellKind, layers: LayerNames): boolean[] {
+  const blocks = classifyBlocks(lines, layers)
+  const roles = blocks.map((block) => block.role)
+  if (kind !== 'output') {
     // Blank lines just inside a block's markers stay hidden.
-    const shown = roles.map((role) => role === 'notes')
+    const shown = blocks.map((block) => block.role === 'notes' && block.layer === kind)
     const blank = (index: number) => lines[index].trim() === ''
-    roles.forEach((role, index) => {
-      if (role !== 'open') return
+    blocks.forEach((block, index) => {
+      if (block.role !== 'open' || block.layer !== kind) return
       let end = index + 1
       while (end < lines.length && roles[end] === 'notes') end += 1
       for (let at = index + 1; at < end && blank(at); at += 1) shown[at] = false
@@ -113,9 +123,9 @@ function shownLines(lines: readonly string[], kind: CellKind): boolean[] {
     && !(lines[index].trim() === '' && roles[index + 1] === 'open'))
 }
 
-export function project(text: string, kind: CellKind): Projection {
+export function project(text: string, kind: CellKind, layers: LayerNames = null): Projection {
   const lines = text.split('\n')
-  const shown = shownLines(lines, kind)
+  const shown = shownLines(lines, kind, layers)
   const visible: string[] = []
   const lead: string[] = []
   const after: string[][] = []
@@ -129,8 +139,8 @@ export function project(text: string, kind: CellKind): Projection {
       after[after.length - 1].push(line)
     }
   })
-  if (visible.length === 0) return { kind, text: '', lead: [], after: [[]], empty: true, lines }
-  return { kind, text: visible.join('\n'), lead, after, empty: false, lines: [] }
+  if (visible.length === 0) return { kind, layers, text: '', lead: [], after: [[]], empty: true, lines }
+  return { kind, layers, text: visible.join('\n'), lead, after, empty: false, lines: [] }
 }
 
 /** The section text a projection stands for. */
@@ -160,12 +170,11 @@ function lineAt(starts: readonly number[], offset: number): number {
 }
 
 /** Where typing into an empty editor goes in the section, as the lines before and after it. */
-function insertionPoint(lines: readonly string[], kind: CellKind): { before: string[]; after: string[] } {
-  const roles = classifyLines(lines)
-  if (kind === 'notes') {
-    // An empty notes block is filled in; otherwise a new one goes after the section's text.
-    // (Nothing is shown, so any block here holds only blank lines.)
-    const open = roles.indexOf('open')
+function insertionPoint(lines: readonly string[], kind: CellKind, layers: LayerNames): { before: string[]; after: string[] } {
+  if (kind !== 'output') {
+    // An empty block of the layer is filled in; otherwise a new one goes at the end of the section.
+    // (Nothing is shown, so any block of it here holds only blank lines.)
+    const open = classifyBlocks(lines, layers).findIndex((block) => block.role === 'open' && block.layer === kind)
     if (open >= 0) return { before: lines.slice(0, open + 1), after: lines.slice(open + 1) }
   }
   let last = lines.length - 1
@@ -173,7 +182,7 @@ function insertionPoint(lines: readonly string[], kind: CellKind): { before: str
   const head = lines.slice(0, last + 1)
   const tail = lines.slice(last + 1)
   const gap = head.length > 0 ? [''] : []
-  if (kind === 'notes') return { before: [...head, ...gap, NOTES_OPEN_LINE], after: [NOTES_CLOSE_LINE, ...tail] }
+  if (kind !== 'output') return { before: [...head, ...gap, blockOpenLine(kind)], after: [NOTES_CLOSE_LINE, ...tail] }
   return { before: [...head, ...gap], after: tail.length > 0 ? tail : [''] }
 }
 
@@ -185,8 +194,8 @@ export function applyChange(projection: Projection, text: string, changes: Chang
   const lines = text.split('\n')
   if (projection.empty) {
     if (text === '') return projection
-    const { before, after } = insertionPoint(projection.lines, projection.kind)
-    return { kind: projection.kind, text, lead: before, after: lines.map((_, index) => (index === lines.length - 1 ? after : [])), empty: false, lines: [] }
+    const { before, after } = insertionPoint(projection.lines, projection.kind, projection.layers)
+    return { kind: projection.kind, layers: projection.layers, text, lead: before, after: lines.map((_, index) => (index === lines.length - 1 ? after : [])), empty: false, lines: [] }
   }
   const oldStarts = lineStarts(projection.text)
   const newStarts = lineStarts(text)
@@ -248,8 +257,10 @@ export function changedRun(before: readonly string[], after: readonly string[]):
 
 // Section operations, on the whole text and a section's index in `partition`.
 
-function replaceSection(text: string, index: number, change: (lines: string[], section: ModelSection) => string[] | null): string | null {
-  const sections = partition(text)
+function replaceSection(
+  text: string, index: number, change: (lines: string[], section: ModelSection) => string[] | null, layers?: LayerNames,
+): string | null {
+  const sections = partition(text, layers)
   const section = sections[index]
   if (!section) return null
   const lines = change(section.text.split('\n'), section)
@@ -261,7 +272,7 @@ function replaceSection(text: string, index: number, change: (lines: string[], s
 const HEADING = /^(\s{0,3})(#{1,6})(\s+)(.*?)(\s+#+)?\s*$/
 
 /** Renames a section: its marker's name, or its heading's text. */
-export function renameSection(text: string, index: number, name: string): string | null {
+export function renameSection(text: string, index: number, name: string, layers?: LayerNames): string | null {
   const clean = name.replace(/\s+/g, ' ').trim()
   if (!clean) return null
   return replaceSection(text, index, (lines) => {
@@ -270,13 +281,13 @@ export function renameSection(text: string, index: number, name: string): string
     const heading = HEADING.exec(lines[0])
     if (!heading) return null
     return [`${heading[1]}${heading[2]} ${clean}`, ...lines.slice(1)]
-  })
+  }, layers)
 }
 
 /** Shows a section's name as a heading in the text, or keeps it as a name only. */
-export function setSectionHeading(text: string, index: number, heading: boolean): string | null {
-  const level = sectionLevel(extractHeadings(text))
-  const folder = isFolderText(text)
+export function setSectionHeading(text: string, index: number, heading: boolean, layers?: LayerNames): string | null {
+  const level = sectionLevel(extractHeadings(text, layers))
+  const folder = isFolderText(text, layers)
   return replaceSection(text, index, (lines) => {
     // In a document folder the name stays a marker: whether it is a heading is the file's setting.
     const marker = parseMarker(lines[0])
@@ -286,14 +297,14 @@ export function setSectionHeading(text: string, index: number, heading: boolean)
     const match = HEADING.exec(lines[0])
     if (!heading && name === null && match) return [sectionMarkerLine(match[4]), ...lines.slice(1)]
     return null
-  })
+  }, layers)
 }
 
 /**
  * Joins a section to the one before it: its marker goes, and its heading becomes a
  * subheading (so the words stay).
  */
-export function mergeIntoPrevious(text: string, index: number): string | null {
+export function mergeIntoPrevious(text: string, index: number, layers?: LayerNames): string | null {
   if (index < 1) return null
   return replaceSection(text, index, (lines) => {
     const marker = parseMarker(lines[0])
@@ -308,19 +319,19 @@ export function mergeIntoPrevious(text: string, index: number): string | null {
     if (!heading) return null
     if (heading[2].length >= 6) return lines.slice(1)
     return [`${heading[1]}#${heading[2]}${heading[3]}${heading[4]}`, ...lines.slice(1)]
-  })
+  }, layers)
 }
 
-export function deleteSection(text: string, index: number): string | null {
-  return replaceSection(text, index, () => [])
+export function deleteSection(text: string, index: number, layers?: LayerNames): string | null {
+  return replaceSection(text, index, () => [], layers)
 }
 
 /** Swaps a section with the one before (-1) or after (1). The text before the first section stays put. */
-export function moveSection(text: string, index: number, direction: -1 | 1): string | null {
-  const sections = partition(text)
+export function moveSection(text: string, index: number, direction: -1 | 1, layers?: LayerNames): string | null {
+  const sections = partition(text, layers)
   const offset = sections[0]?.title === null ? 1 : 0
   if (index < offset) return null
-  return moveSectionText(text, index - offset, index - offset + direction)
+  return moveSectionText(text, index - offset, index - offset + direction, layers)
 }
 
 const trimEnd = (lines: string[]) => {
@@ -335,9 +346,11 @@ const trimEnd = (lines: string[]) => {
  * continues as another named section, `end.name`, so the text keeps its order.
  * Null when the section would be left with nothing but its heading or name.
  */
-export function splitSection(text: string, index: number, line: number, name: string, end?: { line: number; name: string }): string | null {
+export function splitSection(
+  text: string, index: number, line: number, name: string, end?: { line: number; name: string }, layers?: LayerNames,
+): string | null {
   // A document folder's new sections get ids at once, so each one is a file of its own from the first save.
-  const folder = isFolderText(text)
+  const folder = isFolderText(text, layers)
   const markerLine = (value: string) => sectionMarkerLine(value, folder ? { id: newSectionId() } : {})
   return replaceSection(text, index, (lines, section) => {
     if (line < 1 || line >= lines.length) return null
@@ -349,7 +362,7 @@ export function splitSection(text: string, index: number, line: number, name: st
       return [...split, ...lines.slice(line)]
     }
     return [...split, ...trimEnd(lines.slice(line, end.line)), '', markerLine(end.name), ...lines.slice(end.line)]
-  })
+  }, layers)
 }
 
 /** The name for the rest of a section after a split: “Name (continued)”. */

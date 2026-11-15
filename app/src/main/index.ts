@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 
 import { type AiConfig, type AiMessage, type AiRunRequest, type AiSettingsState, normalizeAiConfig, SECRET_NAMES, type SecretName } from '../shared/ai'
 import { type DictionaryDownload, type DictionaryStatus, type ExportOptions, IPC, LOCAL_FILE_SCHEME, type LexiconEntry, type WorkspaceState, type WriteRequest } from '../shared/ipc'
+import { type LayerChange, layerNamesOf } from '../shared/layers'
 import { pathFromLocalFileUrl } from '../shared/paths'
 import { MARGIN_INCHES, normalizePreferences } from '../shared/preferences'
 import { AiBridge } from './aiBridge'
@@ -15,7 +16,7 @@ import { exportMarkdown, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
   convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
-  trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
+  changeLayers, readViews, saveViews, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
 } from './folderDocument'
 import { LexiconStore } from './lexicon'
 import { DEFAULT_PROMPTS, PromptStore, renderTemplate } from './prompts'
@@ -305,13 +306,14 @@ function registerIpc(): void {
     readDocument(guard.resolve(path), options?.allowMissing === true))
   ipcMain.handle(IPC.filesWrite, async (_event, request: WriteRequest) => {
     const target = guard.resolve(request?.path)
-    const before = await readDocument(target, true).then((document) => (document.mtimeMs === null ? null : document.text), () => null)
+    const previous = await readDocument(target, true).catch(() => null)
+    const before = previous && previous.mtimeMs !== null ? previous.text : null
     const result = await isFolderDocument(target)
       ? await writeFolderDocument(target, request, backups, (file) => shell.trashItem(file))
       : await writeTextDocument(target, request, backups)
     if (result.ok) {
       void snapshots.afterSave(target, request.text).catch(() => {})
-      writingStats.recordSave(before, request.text)
+      writingStats.recordSave(before, request.text, layerNamesOf(previous))
       mainWindow?.webContents.send(IPC.statsChanged, writingStats.daily())
     }
     return result
@@ -387,8 +389,8 @@ function registerIpc(): void {
     const owner = BrowserWindow.fromWebContents(event.sender)
     const choice = owner ? await dialog.showSaveDialog(owner, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
     if (choice.canceled || !choice.filePath) return null
-    const { text: content } = await readDocument(source)
-    const { markdown, sections, skipped } = exportMarkdown(content, text(title), options)
+    const document = await readDocument(source)
+    const { markdown, sections, skipped } = exportMarkdown(document.text, text(title), options, layerNamesOf(document))
     await writeExport(choice.filePath, options.format, markdown, text(title), dirname(source), printToPdf, settings.get().preferences.export)
     return { path: choice.filePath, sections, skipped }
   })
@@ -478,6 +480,12 @@ function registerIpc(): void {
     return converted.folder
   })
   ipcMain.handle(IPC.documentsUndoConvert, (_event, folder: unknown) => undoConversion(guard.resolve(folder), (item) => shell.trashItem(item)))
+  ipcMain.handle(IPC.documentsChangeLayers, (_event, folder: unknown, change: LayerChange) => {
+    if (!change || typeof change !== 'object') throw new TypeError('change must be an object')
+    return changeLayers(guard.resolve(folder), change, backups)
+  })
+  ipcMain.handle(IPC.documentsReadViews, (_event, folder: unknown) => readViews(guard.resolve(folder)))
+  ipcMain.handle(IPC.documentsSaveViews, (_event, folder: unknown, views: unknown) => saveViews(guard.resolve(folder), views))
   ipcMain.handle(IPC.filesReveal, async (_event, target: unknown) => {
     const resolved = guard.resolve(target)
     if ((await stat(resolved)).isDirectory()) {

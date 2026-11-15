@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { type SectionSummary, summarizeSections } from '../../shared/document'
+import { layerNamesOf } from '../../shared/layers'
 import { folderName } from '../../shared/format'
 import { samePath } from '../../shared/paths'
 import { onDiskChange, touchesFile } from './changes'
@@ -14,7 +15,7 @@ export interface Outline {
 
 async function loadOutline(path: string): Promise<Outline> {
   const document = await window.verdandi.files.read(path, { allowMissing: true }).catch(() => null)
-  return { title: folderName(path), path, sections: document && document.mtimeMs !== null ? summarizeSections(document.text) : [] }
+  return { title: folderName(path), path, sections: document && document.mtimeMs !== null ? summarizeSections(document.text, layerNamesOf(document)) : [] }
 }
 
 /**

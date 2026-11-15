@@ -4,6 +4,8 @@ import path from 'node:path'
 
 import type { DailyWords, DocumentStats } from '../shared/ipc'
 import { splitSections, splitWordCounts } from '../shared/document'
+import { layerNamesOf } from '../shared/layers'
+import type { LayerNames } from '../shared/notes'
 import { readDocument } from './folderDocument'
 
 interface StatsFile {
@@ -31,11 +33,11 @@ export class WritingStats {
   }
 
   /** Records the net change in words from one save. */
-  recordSave(before: string | null, after: string): void {
+  recordSave(before: string | null, after: string, layers?: LayerNames): void {
     const day = localDay(this.now())
     const entry = this.data.days[day] ?? { notes: 0, output: 0 }
-    const was = before === null ? { output: 0, notes: 0 } : splitWordCounts(before)
-    const now = splitWordCounts(after)
+    const was = before === null ? { output: 0, notes: 0 } : splitWordCounts(before, layers)
+    const now = splitWordCounts(after, layers)
     if (now.output === was.output && now.notes === was.notes) return
     entry.output += now.output - was.output
     entry.notes += now.notes - was.notes
@@ -67,7 +69,7 @@ export class WritingStats {
   /** Per-section counts for a document (split at its headings), with its goal. */
   async documentStats(file: string): Promise<DocumentStats> {
     const [document, info] = await Promise.all([readDocument(file, true), stat(file).catch(() => null)])
-    const sections = splitSections(document.text).map(({ title, line, hasText, notesWords, outputWords }) => ({ title, line, hasText, notesWords, outputWords }))
+    const sections = splitSections(document.text, layerNamesOf(document)).map(({ title, line, hasText, notesWords, outputWords }) => ({ title, line, hasText, notesWords, outputWords }))
     return {
       sections,
       notesWords: sections.reduce((sum, section) => sum + section.notesWords, 0),

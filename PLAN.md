@@ -385,9 +385,11 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Saving** matches sections to files by id and writes only the changed ones. It renames files whose section was renamed, makes files for new sections, trashes the files of removed ones, and rewrites the document note when the order or the names change. Any change to one of the document's files counts as a change to the document, which is how conflicts are found.
   - **What keeps working unchanged:** rows, section menus, the outline, search (a document folder is indexed as one document), stats, export (`.heading` names become `#` headings), History and AI.
   - **Conversion and read-only:** one-file documents with notes blocks or section markers convert on open, with Undo. Other notes open read-only with "Make this a document", and New document makes a document folder.
+- **Done, step 4 (views), 2026-11-14:** any layer the document declares shows in the rows, and any layer can be first. The other layers sit beside it as a stack of panels, side by side or stacked. Layers are added, renamed, re-kinded and deleted from the header (rename and delete rewrite the callouts in every section file; delete asks first and snapshots History). Sections can be collapsed, hidden, filtered on their frontmatter fields, or opened on a page of their own. Named views are saved in `.verdandi/views.yaml` (`shared/views.ts`); the view in use is kept in preferences per document.
 - **Next:**
-  - **Step 4:** layers other than notes in the rows and the layer views.
-  - **Saved views.**
+  - **Layer kinds:** a gallery layer that shows `![[image]]` embeds as a grid, with images added to `attachments/`, and a list layer whose outline across the document can be dragged to reorder sections. Today every kind is edited as Markdown.
+  - **Split from any layer**, as §3b describes (today a split starts from the text), and fields edited in the app rather than only in Obsidian.
+  - **Export and stats per layer:** a notes export and the "in notes" count take every layer other than the text together.
   - **Section files added or renamed in Obsidian:** a stale embed is dropped from the order the next time Verdandi saves. Recovering it by its `id` is not built yet.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
 
