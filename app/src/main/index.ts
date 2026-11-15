@@ -12,7 +12,7 @@ import { pathFromLocalFileUrl } from '../shared/paths'
 import { MARGIN_INCHES, normalizePreferences } from '../shared/preferences'
 import { AiBridge } from './aiBridge'
 import { Dictionary } from './dictionary'
-import { exportMarkdown, writeExport } from './exporter'
+import { exportMarkdown, plainLinks, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
   convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
@@ -376,11 +376,13 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.exportDocument, async (event, folder: unknown, title: unknown, options: ExportOptions) => {
     const source = guard.resolve(folder)
-    if (!options || !['md', 'html', 'pdf'].includes(options.format) || !['output', 'notes'].includes(options.content)) {
+    const content = options?.content
+    const validContent = content === 'output' || content === 'notes' || (typeof content === 'string' && /^layer:[a-z0-9-]+$/.test(content))
+    if (!options || !['md', 'html', 'pdf'].includes(options.format) || !validContent) {
       throw new TypeError('Invalid export options.')
     }
     const name = text(title).replace(/[<>:"/\\|?*]/g, '_') || 'document'
-    const suffix = options.content === 'notes' ? ' (notes)' : ''
+    const suffix = content === 'notes' ? ' (notes)' : content.startsWith('layer:') ? ` (${content.slice('layer:'.length).replace(/-/g, ' ')})` : ''
     const dialogOptions = {
       title: 'Export document',
       defaultPath: join(app.getPath('documents'), `${name}${suffix}.${options.format}`),
@@ -390,8 +392,16 @@ function registerIpc(): void {
     const choice = owner ? await dialog.showSaveDialog(owner, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
     if (choice.canceled || !choice.filePath) return null
     const document = await readDocument(source)
-    const { markdown, sections, skipped } = exportMarkdown(document.text, text(title), options, layerNamesOf(document))
-    await writeExport(choice.filePath, options.format, markdown, text(title), dirname(source), printToPdf, settings.get().preferences.export)
+    const names = layerNamesOf(document)
+    if (content.startsWith('layer:') && !(names ?? ['notes']).includes(content.slice('layer:'.length))) {
+      throw new TypeError('The document has no such layer.')
+    }
+    // A document folder's images are inside it (in `attachments/`, where Obsidian puts them); a file's are beside it.
+    const base = document.folder ? source : dirname(source)
+    const exported = exportMarkdown(document.text, text(title), options, names)
+    const markdown = plainLinks(exported.markdown, (image) => (existsSync(join(base, 'attachments', image)) ? `attachments/${image}` : image))
+    const { sections, skipped } = exported
+    await writeExport(choice.filePath, options.format, markdown, text(title), base, printToPdf, settings.get().preferences.export)
     return { path: choice.filePath, sections, skipped }
   })
   ipcMain.handle(IPC.exportShow, (_event, file: unknown) => shell.showItemInFolder(text(file)))

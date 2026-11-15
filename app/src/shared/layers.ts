@@ -8,8 +8,8 @@
 import { type Document, isMap, isScalar, isSeq, parseDocument } from 'yaml'
 
 import { hasNotes, splitSections } from './document'
-import { classifyBlocks } from './notes'
-import { extractSectionMarkers, sectionMarkerLine } from './text'
+import { classifyBlocks, stripNotes } from './notes'
+import { extractSectionMarkers, sectionMarkerLine, stripSectionMarkers } from './text'
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -110,6 +110,8 @@ export function layerNamesOf(document: { layers?: readonly Layer[] } | null | un
   return document?.layers ? document.layers.map((layer) => layer.name) : null
 }
 
+export { layerLabel } from './notes'
+
 export const LAYER_KINDS: readonly LayerKind[] = ['prose', 'list', 'gallery']
 const LAYER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -162,6 +164,40 @@ export function removeLayerBlocks(text: string, layers: readonly string[], name:
 export function layerHasContent(text: string, layers: readonly string[], name: string): boolean {
   const lines = text.split('\n')
   return classifyLayerLines(lines, layers).some((line, index) => line.role === 'layer' && line.layer === name && lines[index].trim() !== '')
+}
+
+/** Obsidian's own callout types and their aliases, which are formatting rather than layers. */
+const OBSIDIAN_CALLOUTS = new Set([
+  'note', 'abstract', 'summary', 'tldr', 'info', 'todo', 'tip', 'hint', 'important', 'success', 'check', 'done',
+  'question', 'help', 'faq', 'warning', 'caution', 'attention', 'failure', 'fail', 'missing', 'danger', 'error',
+  'bug', 'example', 'quote', 'cite',
+])
+
+/**
+ * Callout types in a working text's own text (not inside a layer block or code)
+ * that could be layers but are not declared, such as a `> [!beats]` written in
+ * Obsidian: in order of first use, lowercase. Obsidian's own types are left out.
+ */
+export function undeclaredCallouts(text: string, layers: readonly string[]): string[] {
+  const lines = text.split('\n')
+  const roles = classifyBlocks(lines, layers)
+  const declared = new Set(layers.map((name) => name.toLowerCase()))
+  const found: string[] = []
+  let fence: string | null = null
+  lines.forEach((raw, index) => {
+    const line = raw.replace(/\r$/, '')
+    const opened = FENCE.exec(line)
+    if (opened) {
+      if (fence === null) fence = opened[1][0]
+      else if (opened[1][0] === fence) fence = null
+      return
+    }
+    if (fence !== null || roles[index].role !== 'output') return
+    const callout = CALLOUT.exec(line)
+    const name = callout?.[1].toLowerCase()
+    if (name && isLayerName(name) && !declared.has(name) && !OBSIDIAN_CALLOUTS.has(name) && !found.includes(name)) found.push(name)
+  })
+  return found
 }
 
 /** The layers a document note declares. A bare name is a prose layer. */
@@ -561,4 +597,12 @@ export function markersToHeadings(text: string, layers?: readonly string[] | nul
   const lines = text.split('\n')
   for (const marker of markers) lines[marker.line - 1] = `# ${marker.name}`
   return lines.join('\n')
+}
+
+/**
+ * A document's finished text, as it is exported: no layer blocks, and no section
+ * markers except those that show as headings (`.heading`), which become `#` headings.
+ */
+export function finishedText(text: string, layers?: readonly string[] | null): string {
+  return stripSectionMarkers(markersToHeadings(stripNotes(text, layers), layers), layers)
 }

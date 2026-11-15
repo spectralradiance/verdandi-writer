@@ -3,7 +3,10 @@ import path from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 
 import { MATCH_END, MATCH_START, type SearchHit, type SearchStatus } from '../shared/ipc'
+import { layerNamesOf } from '../shared/layers'
+import { classifyBlocks, type LayerNames } from '../shared/notes'
 import { STOPWORDS } from '../shared/readability'
+import { extractSectionMarkers } from '../shared/text'
 import { isInside, isTextFileName } from './fileService'
 import { isFolderDocument, readDocument } from './folderDocument'
 
@@ -12,6 +15,8 @@ export { MATCH_END, MATCH_START }
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '__pycache__'])
 const MAX_CHUNK_CHARS = 2000
 const MAX_FILE_BYTES = 5 * 1024 * 1024
+/** 1: layer blocks and section markers are left out of what is indexed. */
+const INDEX_VERSION = 1
 
 export interface Chunk {
   line: number
@@ -42,6 +47,19 @@ export function chunkText(text: string): Chunk[] {
   })
   flush()
   return chunks
+}
+
+/**
+ * A document's text as search sees it, line for line (so hits keep their line
+ * numbers): a section marker reads as the section's name, and the lines that open
+ * and close layer blocks are blank, so neither `::: notes` nor a marker's id is
+ * matched or shown in a snippet.
+ */
+export function searchableText(text: string, layers?: LayerNames): string {
+  const lines = text.split('\n')
+  const blocks = classifyBlocks(lines, layers)
+  for (const marker of extractSectionMarkers(text, layers)) lines[marker.line - 1] = marker.name
+  return lines.map((line, index) => (blocks[index].role === 'open' || blocks[index].role === 'close' ? '' : line)).join('\n')
 }
 
 /** Every token must prefix-match; quotes keep FTS syntax out of user input. */
@@ -76,6 +94,11 @@ export class SearchIndex {
 
   constructor(file: string) {
     this.db = new DatabaseSync(file)
+    // A change to what is indexed (see `searchableText`) bumps the version, and the index starts over.
+    const version = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    if (version < INDEX_VERSION) {
+      this.db.exec(`DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS chunks; PRAGMA user_version = ${INDEX_VERSION};`)
+    }
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime REAL NOT NULL, size INTEGER NOT NULL);
@@ -190,7 +213,8 @@ export class SearchIndex {
     let chunks: Chunk[] = []
     if (size <= MAX_FILE_BYTES) {
       try {
-        chunks = chunkText((await readDocument(file)).text)
+        const document = await readDocument(file)
+        chunks = chunkText(searchableText(document.text, layerNamesOf(document)))
       } catch {
         chunks = [] // binary or unreadable: remember it so it is not retried until it changes
       }

@@ -15,6 +15,13 @@ const LAYER_OPEN = /^[ \t]{0,3}:{3,}[ \t]*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?:[ \
 const CLOSE = /^[ \t]{0,3}:{3,}[ \t]*$/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
 
+/** A layer's name as a label: `story-beats` → `Story beats`; `output` is the section's text. */
+export function layerLabel(name: string): string {
+  if (name === 'output') return 'Text'
+  const words = name.replace(/-/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 export const NOTES_OPEN_LINE = '::: notes'
 export const NOTES_CLOSE_LINE = ':::'
 

@@ -167,5 +167,8 @@ export function splitsAtMarkersOnly(markers: readonly Pick<SectionMarker, 'id'>[
 export function stripSectionMarkers(text: string, layers?: LayerNames): string {
   const drop = new Set(extractSectionMarkers(text, layers).map((marker) => marker.line - 1))
   if (drop.size === 0) return text
-  return text.split('\n').filter((_, index) => !drop.has(index)).join('\n').replace(/\n{3,}/g, '\n\n')
+  // A marker becomes a blank line rather than nothing, so the sections either side of it never run into one paragraph.
+  const lines = text.split('\n').map((line, index) => (drop.has(index) ? '' : line))
+  if (drop.has(0)) lines.shift()
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n')
 }

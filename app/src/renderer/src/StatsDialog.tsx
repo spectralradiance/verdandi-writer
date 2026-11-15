@@ -5,6 +5,7 @@ import { errorMessage } from './target'
 import { X } from 'lucide-react'
 
 import { Modal } from './Modal'
+import { kindLabel } from './editor/SectionGrid'
 
 interface StatsDialogProps {
   /** The document file. */
@@ -79,7 +80,9 @@ export function StatsDialog({ path, title, onOpenSection, onClose }: StatsDialog
           <div className="settings-section">
             <div className="stats-summary">
               <div><strong>{stats.outputWords.toLocaleString()}</strong><span>output words</span></div>
-              <div><strong>{stats.notesWords.toLocaleString()}</strong><span>notes words</span></div>
+              {stats.layers.map((layer) => (
+                <div key={layer}><strong>{(stats.layerWords[layer] ?? 0).toLocaleString()}</strong><span>{layer.replace(/-/g, ' ')} words</span></div>
+              ))}
               <div><strong>{titled.filter((section) => section.hasText).length}/{titled.length}</strong><span>sections with text</span></div>
             </div>
 
@@ -100,13 +103,13 @@ export function StatsDialog({ path, title, onOpenSection, onClose }: StatsDialog
 
             <table className="settings-table stats-table">
               <thead>
-                <tr><th>Section</th><th>Notes</th><th>Output</th></tr>
+                <tr><th>Section</th>{stats.layers.map((layer) => <th key={layer}>{kindLabel(layer)}</th>)}<th>Output</th></tr>
               </thead>
               <tbody>
                 {titled.map((section) => (
                   <tr key={`${section.line}:${section.title}`}>
                     <td><button type="button" className="link-button" onClick={() => onOpenSection(section.line)}>{section.title}</button></td>
-                    <td>{section.notesWords.toLocaleString()}</td>
+                    {stats.layers.map((layer) => <td key={layer}>{(section.layerWords[layer] ?? 0).toLocaleString()}</td>)}
                     <td>{section.hasText ? section.outputWords.toLocaleString() : <span className="lexical-hint">none yet</span>}</td>
                   </tr>
                 ))}

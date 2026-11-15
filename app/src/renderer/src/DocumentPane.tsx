@@ -1,12 +1,13 @@
-import { type ReactNode, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
-import { type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER } from '../../shared/layers'
+import { type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
 import type { DocumentView, SavedView } from '../../shared/views'
 import { loadView, storeView } from './documentView'
+import { readPref, writePref } from './prefs'
 import { extractHeadings, type Heading } from '../../shared/text'
 import { onDiskChange, touchesFile } from './changes'
 import type { MarkdownEditorHandle, WordInContext } from './editor/MarkdownEditor'
@@ -44,6 +45,8 @@ export interface CurrentSection {
   title: string | null
   output: string
   notes: string
+  /** Its layers' text, for the layers that have any. */
+  layers: Record<string, string>
 }
 
 export interface DocumentPaneHandle {
@@ -132,6 +135,15 @@ export function DocumentPane({
   const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
   const [layerBusy, setLayerBusy] = useState(false)
   const [layerError, setLayerError] = useState<string | null>(null)
+  // Callout types left as text on purpose, so the offer to make them layers is not repeated.
+  const [keptCallouts, setKeptCallouts] = useState<string[]>(() => {
+    try {
+      const stored: unknown = JSON.parse(readPref(`keptCallouts:${path.toLowerCase()}`) ?? '[]')
+      return Array.isArray(stored) ? stored.filter((name): name is string => typeof name === 'string') : []
+    } catch {
+      return []
+    }
+  })
   /** The layer names the text's blocks use (null: a one-file document, notes only). */
   const layerNames = useRef<string[] | null>(null)
 
@@ -300,7 +312,7 @@ export function DocumentPane({
       const sections = splitSections(handle.getText(), layerNames.current)
       const index = sectionAtLine(sections, handle.cursorLine())
       const section = sections[index]
-      return section ? { index, title: section.title, output: section.output, notes: section.notes } : null
+      return section ? { index, title: section.title, output: section.output, notes: section.notes, layers: section.layers } : null
     },
     propose: (text, label, index) => {
       const handle = editor.current
@@ -412,6 +424,18 @@ export function DocumentPane({
   }
 
   const fileName = folderName(path)
+
+  // A callout written in Obsidian with a type the document does not declare stays text; offer to make it a layer.
+  const newCallout = useMemo(() => {
+    const document = loaded?.document
+    if (!document?.folder || !document.layers) return null
+    return undeclaredCallouts(document.text, document.layers.map((layer) => layer.name)).find((name) => !keptCallouts.includes(name)) ?? null
+  }, [loaded, keptCallouts])
+  const keepCallout = (name: string) => {
+    const next = [...keptCallouts, name]
+    setKeptCallouts(next)
+    writePref(`keptCallouts:${path.toLowerCase()}`, JSON.stringify(next))
+  }
 
   if (loadError) {
     return (
@@ -531,6 +555,16 @@ export function DocumentPane({
         </div>
       )}
 
+      {newCallout && mode === 'edit' && (
+        <div className="banner banner-info" role="status">
+          <span>Some sections have <code>[!{newCallout}]</code> callouts, which this document doesn’t have as a layer, so they show as text.</span>
+          <button type="button" disabled={layerBusy}
+            onClick={() => void changeLayers({ add: { name: newCallout, kind: 'prose', anchored: false } }, `Added the ${newCallout} layer`)}>
+            Make it a layer
+          </button>
+          <button type="button" onClick={() => keepCallout(newCallout)}>Keep as text</button>
+        </div>
+      )}
       {mode === 'read' && (
         <div className="banner banner-info" role="status">
           <span>This is an ordinary note, so it opens read-only. Make it a document to edit it in sections.</span>

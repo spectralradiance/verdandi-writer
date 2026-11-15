@@ -69,12 +69,20 @@ export class WritingStats {
   /** Per-section counts for a document (split at its headings), with its goal. */
   async documentStats(file: string): Promise<DocumentStats> {
     const [document, info] = await Promise.all([readDocument(file, true), stat(file).catch(() => null)])
-    const sections = splitSections(document.text, layerNamesOf(document)).map(({ title, line, hasText, notesWords, outputWords }) => ({ title, line, hasText, notesWords, outputWords }))
+    const names = layerNamesOf(document)
+    const sections = splitSections(document.text, names).map(({ title, line, hasText, notesWords, layerWords, outputWords }) => ({ title, line, hasText, notesWords, layerWords, outputWords }))
+    const layerWords: Record<string, number> = {}
+    for (const section of sections) {
+      for (const [layer, words] of Object.entries(section.layerWords)) layerWords[layer] = (layerWords[layer] ?? 0) + words
+    }
+    const modified = document.modifiedMs !== undefined ? new Date(document.modifiedMs) : info?.mtime
     return {
       sections,
+      layers: names ? [...names] : ['notes'],
       notesWords: sections.reduce((sum, section) => sum + section.notesWords, 0),
+      layerWords,
       outputWords: sections.reduce((sum, section) => sum + section.outputWords, 0),
-      modified: info ? info.mtime.toISOString() : null,
+      modified: modified ? modified.toISOString() : null,
       goal: this.goal(file),
     }
   }

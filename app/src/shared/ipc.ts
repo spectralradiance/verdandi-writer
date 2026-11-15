@@ -84,6 +84,8 @@ export interface TextDocument {
   layers?: Layer[]
   /** A document folder's sections' frontmatter fields (besides id, title and heading), by section id. */
   fields?: Record<string, Record<string, unknown>>
+  /** When a document folder's files last changed: the latest of them. */
+  modifiedMs?: number
 }
 
 export interface WriteRequest {
@@ -195,13 +197,19 @@ export interface SectionStats {
   line: number
   /** Whether the section has any text besides its heading and notes. */
   hasText: boolean
+  /** Words in every layer together. */
   notesWords: number
+  /** Words in each layer that has any. */
+  layerWords: Record<string, number>
   outputWords: number
 }
 
 export interface DocumentStats {
   sections: SectionStats[]
+  /** The document's layers, in order: its notes alone, for a one-file document. */
+  layers: string[]
   notesWords: number
+  layerWords: Record<string, number>
   outputWords: number
   /** ISO time the file last changed. */
   modified: string | null
@@ -219,10 +227,15 @@ export interface SnapshotEntry {
   label: string | null
 }
 
+export type ExportContent = 'output' | 'notes' | `layer:${string}`
+
 export interface ExportOptions {
   format: 'md' | 'html' | 'pdf'
-  /** The text itself, or only the notes. */
-  content: 'output' | 'notes'
+  /**
+   * The text itself (`output`), every layer under each section's title (`notes`),
+   * or one layer (`layer:outline`).
+   */
+  content: ExportContent
   includeTitle: boolean
 }
 

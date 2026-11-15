@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
+import { layerMaterial, moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
 import type { SidecarStatus, WorkspaceState } from '../../shared/ipc'
-import { stripNotes } from '../../shared/notes'
+import { finishedText } from '../../shared/layers'
 import { outlineMarkdown } from '../../shared/outline'
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences'
 import { isWithin, samePath } from '../../shared/paths'
@@ -73,7 +73,8 @@ export function App() {
     return stored === 'words' || stored === 'ai' ? stored : null
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  // The export dialog, with the layers of the document it exports (null for a one-file document).
+  const [exporting, setExporting] = useState<{ layers: string[] | null } | null>(null)
   const [showStats, setShowStats] = useState(false)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES)
@@ -433,24 +434,26 @@ export function App() {
     readActive: () => {
       const handle = active ? panes.current.get(active.path) : undefined
       if (!active || !handle) return null
-      // Notes blocks are the writer's scaffolding, not text to analyze.
+      // Layer blocks are the writer's scaffolding, and section markers the app's; neither is text to analyze.
       return {
-        text: stripNotes(handle.getText(), handle.layerNames()),
+        text: finishedText(handle.getText(), handle.layerNames()),
         selection: handle.getSelection(),
         document: documentTitle,
         section: handle.currentSection()?.title ?? '',
       }
     },
     readSection: async () => {
-      // The section under the cursor; its notes blocks are the notes.
+      // The section under the cursor; its layers (its notes blocks, in a one-file document) are the notes.
       const handle = active ? panes.current.get(active.path) : undefined
       const current = handle?.currentSection()
       if (!active || !handle || !current) return null
-      const preface = splitSections(handle.getText(), handle.layerNames()).find((candidate) => candidate.title === null)?.notes
+      const layers = handle.layerNames()
+      const prefaceSection = splitSections(handle.getText(), layers).find((candidate) => candidate.title === null)
+      const preface = prefaceSection ? layerMaterial(prefaceSection, layers) : ''
       return {
         document: documentTitle,
         section: current.title ?? documentTitle,
-        notes: current.notes,
+        notes: layerMaterial(current, layers),
         output: current.output,
         documentNotes: preface || '(none)',
         target: { path: active.path, index: current.index },
@@ -591,7 +594,7 @@ export function App() {
         </SidePanel>
       )}
       {exporting && exportTarget && (
-        <ExportDialog folder={exportTarget.path} title={exportTarget.title} flush={flushAll} onClose={() => setExporting(false)} />
+        <ExportDialog folder={exportTarget.path} title={exportTarget.title} layers={exporting.layers} flush={flushAll} onClose={() => setExporting(null)} />
       )}
       {showStats && target && (
         <StatsDialog
@@ -644,7 +647,7 @@ export function App() {
           exportTitle={exportTarget?.title ?? null}
           onExport={() => {
             setAppSettingsOpen(false)
-            setExporting(true)
+            setExporting({ layers: exportTarget ? panes.current.get(exportTarget.path)?.layerNames() ?? null : null })
           }}
         />
       )}
