@@ -1,3 +1,4 @@
+import { layerLabel } from '../../shared/layers'
 import { encodingLabel, lineEndingLabel } from '../../shared/text'
 import type { DocumentInfo } from './DocumentPane'
 import { GearIcon, PaneIcon } from './icons'
@@ -31,9 +32,11 @@ export function StatusBar({ documentInfo, todayWords, panes, onSettings }: Statu
       {documentInfo && (
         <span className="status-document">
           <span>{documentInfo.words.toLocaleString()} {documentInfo.words === 1 ? 'word' : 'words'}</span>
-          {documentInfo.notesWords > 0 && (
-            <span title="Words inside notes blocks, not counted above">{documentInfo.notesWords.toLocaleString()} in notes</span>
-          )}
+          {documentInfo.layerWords.map(([layer, words]) => (
+            <span key={layer} title={`Words in the ${layerLabel(layer).toLowerCase()} layer, not counted in the text`}>
+              {words.toLocaleString()} in {layerLabel(layer).toLowerCase()}
+            </span>
+          ))}
           <span title="File encoding">{encodingLabel(documentInfo.format.encoding)}</span>
           <span title="Line endings">
             {lineEndingLabel(documentInfo.format.eol)}{documentInfo.format.mixedEol ? ' (mixed)' : ''}

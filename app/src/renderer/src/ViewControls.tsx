@@ -43,17 +43,14 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
     return { ...current, primary: kind, shown }
   })
   const toggleSide = () => onView((current) => ({ ...current, shown: current.shown.length > 0 ? [] : others.slice(0, 1) }))
-  const toggleLayer = (kind: string) => onView((current) => ({
-    ...current,
-    shown: current.shown.includes(kind) ? current.shown.filter((item) => item !== kind) : kinds.filter((item) => item === kind || current.shown.includes(item)),
-  }))
+  const chooseLayer = (kind: string) => onView((current) => ({ ...current, shown: current.shown.includes(kind) ? [] : [kind] }))
 
   const layerItems: MenuItem[] = [
     { heading: 'Beside each section' },
-    ...others.map((kind): MenuItem => ({ label: kindLabel(kind), checked: view.shown.includes(kind), onClick: () => toggleLayer(kind) })),
+    ...others.map((kind): MenuItem => ({ label: kindLabel(kind), checked: view.shown.includes(kind), onClick: () => chooseLayer(kind) })),
     { heading: 'Layout' },
     { label: 'Side by side', checked: view.layout === 'side', onClick: () => onView((current) => ({ ...current, layout: 'side' })) },
-    { label: 'Stacked', checked: view.layout === 'stacked', title: 'The other layers under each section’s first one', onClick: () => onView((current) => ({ ...current, layout: 'stacked' })) },
+    { label: 'Stacked', checked: view.layout === 'stacked', title: 'The other layer under each section’s first one', onClick: () => onView((current) => ({ ...current, layout: 'stacked' })) },
   ]
   if (onManageLayers) layerItems.push('separator', { label: 'Manage layers…', title: 'Add, rename or delete this document’s layers', onClick: onManageLayers })
 
@@ -99,13 +96,13 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
       </div>
       <IconButton
         icon={Columns2}
-        label={sideShown ? 'Hide the other layers' : 'Show the other layers'}
-        title={`${sideShown ? 'Hide' : 'Show'} the other layers beside every section. Ctrl+Alt+N moves between a section’s layers.`}
+        label={sideShown ? 'Hide the other layer' : 'Show the other layer'}
+        title={`${sideShown ? 'Hide' : 'Show'} the other layer beside every section; the tabs over the rows choose which. Ctrl+Alt+N moves between a section’s two layers.`}
         aria-pressed={sideShown}
         onClick={toggleSide}
       />
       <DropdownMenu items={layerItems} trigger={(
-        <button type="button" className="tool-button" aria-label="Layers" title="Which layers show beside each section, and how"><Layers size={16} strokeWidth={1.8} aria-hidden="true" /></button>
+        <button type="button" className="tool-button" aria-label="Layers" title="Which layer shows beside each section, and how"><Layers size={16} strokeWidth={1.8} aria-hidden="true" /></button>
       )} />
       <DropdownMenu items={viewItems} trigger={(
         <button type="button" className={`tool-button${filterEntries.length || view.hidden.length ? ' tool-button-flag' : ''}`} aria-label="Views"

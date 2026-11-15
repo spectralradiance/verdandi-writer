@@ -18,7 +18,7 @@ export type MenuItem =
     title?: string
   }
 
-const CONTENT = 'z-50 min-w-[190px] rounded-md border border-border bg-raised py-1 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]'
+const CONTENT = 'z-50 min-w-[190px] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-md border border-border bg-raised py-1 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]'
 const ITEM = 'flex cursor-default items-center gap-2 py-[5px] pr-3.5 pl-3.5 outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection'
 const SEPARATOR = 'my-1 h-px bg-border'
 const HEADING = 'px-3.5 pt-1.5 pb-0.5 text-[11px] uppercase tracking-[0.08em] text-muted select-none'

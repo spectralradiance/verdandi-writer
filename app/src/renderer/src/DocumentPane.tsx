@@ -32,11 +32,25 @@ export const SAVE_LABEL: Record<SaveState, string> = {
 }
 
 export interface DocumentInfo {
-  /** Words outside notes blocks: the text itself. */
+  /** Words in the text itself, outside every layer. */
   words: number
-  /** Words inside notes blocks. */
-  notesWords: number
+  /** Words in each other layer (notes, outline…), in the document's order; layers with none are left out. */
+  layerWords: [layer: string, words: number][]
   format: TextFormat
+}
+
+/** The words of the text and of each layer, for the status bar. */
+function wordInfo(text: string, names: string[] | null, gallery: readonly string[] = []): Pick<DocumentInfo, 'words' | 'layerWords'> {
+  const counts = splitWordCounts(text, names)
+  const totals = new Map<string, number>()
+  for (const section of splitSections(text, names)) {
+    for (const [layer, words] of Object.entries(section.layerWords)) totals.set(layer, (totals.get(layer) ?? 0) + words)
+  }
+  const order = names ?? ['notes']
+  const layerWords = [...totals].filter(([layer, words]) => words > 0 && !gallery.includes(layer))
+    .sort(([a], [b]) => (order.indexOf(a) + 1 || order.length + 1) - (order.indexOf(b) + 1 || order.length + 1))
+  if (layerWords.length === 0 && counts.notes > 0) layerWords.push(['notes', counts.notes])
+  return { words: counts.output, layerWords }
 }
 
 /** The section at the cursor of a single-file document. */
@@ -148,6 +162,8 @@ export function DocumentPane({
   })
   /** The layer names the text's blocks use (null: a one-file document, notes only). */
   const layerNames = useRef<string[] | null>(null)
+  /** Layers of images, whose words (file names) aren't counted. */
+  const galleryNames = useRef<string[]>([])
 
   const editor = useRef<MarkdownEditorHandle>(null)
   const disk = useRef<DiskState | null>(null)
@@ -173,8 +189,7 @@ export function DocumentPane({
   }, [])
 
   const reportStats = useCallback((text: string, format: TextFormat) => {
-    const counts = splitWordCounts(text, layerNames.current)
-    parent.current.onInfo({ words: counts.output, notesWords: counts.notes, format })
+    parent.current.onInfo({ ...wordInfo(text, layerNames.current, galleryNames.current), format })
     parent.current.onHeadings?.(extractHeadings(text, layerNames.current))
     parent.current.onSections?.(summarizeSections(text, layerNames.current))
   }, [])
@@ -193,6 +208,7 @@ export function DocumentPane({
   const applyDocument = useCallback((document: TextDocument) => {
     disk.current = { mtimeMs: document.mtimeMs, format: document.format }
     layerNames.current = document.layers ? document.layers.map((layer) => layer.name) : null
+    galleryNames.current = (document.layers ?? []).filter((layer) => layer.kind === 'gallery').map((layer) => layer.name)
     setView(loadView(path, (document.layers ?? [NOTES_LAYER]).map((layer) => layer.name)))
     if (document.folder) void window.verdandi.documents.readViews(path).then(setSavedViews, () => setSavedViews([]))
     version.current = 0
@@ -269,8 +285,7 @@ export function DocumentPane({
         if (result.notice) setNotice(result.notice)
         // A document folder gave new sections ids: the editor takes them unless typing went on meanwhile.
         if (result.text !== undefined && editor.current?.getText() === text) editor.current.sync(result.text)
-        const counts = splitWordCounts(text, layerNames.current)
-        parent.current.onInfo({ words: counts.output, notesWords: counts.notes, format: result.format })
+        parent.current.onInfo({ ...wordInfo(text, layerNames.current, galleryNames.current), format: result.format })
         if (version.current === target) {
           updateState('saved')
         } else {
@@ -414,7 +429,7 @@ export function DocumentPane({
         if (view) storeView(path, follow(view))
         if (savedViews.length) storeSaved(savedViews.map((saved) => ({ ...saved, ...follow(saved) })))
       } else if ('add' in change && view) {
-        storeView(path, { ...view, shown: view.shown.length ? [...view.shown, change.add.name] : view.shown })
+        storeView(path, { ...view, shown: view.shown.length ? [change.add.name] : view.shown })
       }
       setNotice(`${label}.`)
       await load()
