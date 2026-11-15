@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { layerMaterial, moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
 import type { SidecarStatus, WorkspaceState } from '../../shared/ipc'
-import { finishedText } from '../../shared/layers'
+import { finishedText, layerNamesOf } from '../../shared/layers'
 import { outlineMarkdown } from '../../shared/outline'
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences'
 import { isWithin, samePath } from '../../shared/paths'
@@ -403,12 +403,12 @@ export function App() {
     const handle = panes.current.get(file)
     try {
       if (handle) {
-        const moved = moveSectionText(handle.getText(), from, to)
+        const moved = moveSectionText(handle.getText(), from, to, handle.layerNames())
         if (moved !== null) handle.replaceAll(moved)
         return
       }
       const document = await window.verdandi.files.read(file)
-      const moved = moveSectionText(document.text, from, to)
+      const moved = moveSectionText(document.text, from, to, layerNamesOf(document))
       if (moved === null) return
       const result = await window.verdandi.files.write({ path: file, text: moved, format: document.format, expectedMtimeMs: document.mtimeMs })
       if (!result.ok) window.alert(`“${folderName(file)}” changed on disk; try again.`)

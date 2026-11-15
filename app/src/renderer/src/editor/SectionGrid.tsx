@@ -1,14 +1,16 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
-import { ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, EyeOff, PanelRightOpen, Rows3 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, EyeOff, GripVertical, PanelRightOpen, Rows3 } from 'lucide-react'
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 
+import { moveSectionText } from '../../../shared/document'
 import { suggestEdits } from '../../../shared/diff'
 import { type Layer, layerLabel } from '../../../shared/layers'
 import type { LayerNames } from '../../../shared/notes'
 import { type DocumentView, matchesFilter } from '../../../shared/views'
 import { DropdownMenu, type MenuItem } from '../menu'
 import { readPref, writePref } from '../prefs'
+import { GalleryCell } from './GalleryCell'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
 import {
   applyChange, type CellKind, changedRun, continuedName, deleteSection, fromSectionOffset, isFolderText, joinSections, mergeIntoPrevious, moveSection, partition,
@@ -137,6 +139,7 @@ export function SectionGrid({
     return { kinds: ['output', ...names] as CellKind[], classify: (layers ? names : null) as LayerNames, names }
   })
   const { kinds, classify } = model
+  const gallery = layers ? layers.filter((layer) => layer.kind === 'gallery').map((layer) => layer.name) : []
   // Built once; the model and the rendered rows both start from it.
   const [initial] = useState(() => {
     const sections = partition(initialText, classify)
@@ -290,6 +293,18 @@ export function SectionGrid({
     parent.current.onDocChanged()
     return true
   }, [getText, resync])
+
+  /** A section dragged by its grip and dropped before or after another (row indexes, the text before the first section included). */
+  const reorderSections = (from: number, target: number, after: boolean) => {
+    const offset = meta.rows[0]?.title === null ? 1 : 0
+    const source = from - offset
+    // Dropped before the text that precedes every section: it becomes the first section.
+    const at = Math.max(0, target - offset)
+    const place = after && target >= offset ? at + 1 : at
+    const to = source < place ? place - 1 : place
+    if (source < 0) return
+    applyText(moveSectionText(getText(), source, to, classify))
+  }
 
   const onCellChanges = useCallback((id: number, kind: CellKind, changes: ChangeSet, text: string) => {
     if (applying.current) {
@@ -662,6 +677,8 @@ export function SectionGrid({
   const classes = [
     'section-grid', `primary-${primary === 'output' ? 'output' : 'layer'}`, secondaryShown ? '' : 'secondary-off',
     view.layout === 'stacked' ? 'layout-stacked' : '', pageMode ? 'page-mode' : '',
+    // A list layer first reads as one outline of the whole document, its sections dragged by their grips.
+    layers?.find((layer) => layer.name === primary)?.kind === 'list' ? 'primary-list' : '',
   ].filter(Boolean).join(' ')
 
   return (
@@ -706,6 +723,7 @@ export function SectionGrid({
             height={height}
             renaming={renaming === rowMeta.id}
             menu={readOnly ? null : () => menuFor(index, shown, height !== undefined)}
+            reorder={readOnly || pageMode ? null : { index, draggable: rowMeta.title !== null, onDrop: reorderSections }}
             onRename={(name) => {
               setRenaming(null)
               if (name !== null) applyText(renameSection(getText(), index, name, classify), true)
@@ -716,6 +734,9 @@ export function SectionGrid({
             onHeight={(value) => setRowHeight(key, value)}
             cell={(kind) => ({
               path,
+              imageFolder: layers ? path : undefined,
+              gallery,
+              sectionName: rowMeta.title ?? 'the text before the first section',
               live,
               focusMode,
               readOnly,
@@ -748,6 +769,12 @@ export function SectionGrid({
 
 interface CellProps {
   path: string
+  /** A document folder's path, where its images are; unset for a one-file document. */
+  imageFolder?: string
+  /** The layers shown as a gallery of images. */
+  gallery: readonly CellKind[]
+  /** The section's name, for labels. */
+  sectionName: string
   live: boolean
   focusMode: boolean
   readOnly: boolean
@@ -766,18 +793,22 @@ function Cell({ id, kind, initialText, props }: { id: number; kind: CellKind; in
   const { register } = props
   const key = cellKey(id, kind)
   const attach = useCallback((handle: MarkdownEditorHandle | null) => register(key, handle), [register, key])
-  return (
+  const editor = (ref: (handle: MarkdownEditorHandle | null) => void, onText?: (text: string) => void) => (
     <MarkdownEditor
-      ref={attach}
+      ref={ref}
       variant="cell"
       path={props.path}
+      imageFolder={props.imageFolder}
       initialText={initial}
       placeholder={placeholderFor(kind)}
       live={props.live}
       focusMode={props.focusMode}
       readOnly={props.readOnly}
       extraKeys={props.keys}
-      onChanges={props.onChanges}
+      onChanges={onText ? (changes, text) => {
+        props.onChanges(changes, text)
+        onText(text)
+      } : props.onChanges}
       onDocChanged={noop}
       onSave={props.onSave}
       onBlur={props.onBlur}
@@ -785,6 +816,13 @@ function Cell({ id, kind, initialText, props }: { id: number; kind: CellKind; in
       onSelectWord={props.onSelectWord}
     />
   )
+  if (props.gallery.includes(kind) && props.imageFolder) {
+    return (
+      <GalleryCell folder={props.imageFolder} readOnly={props.readOnly} initialText={initial} register={attach} editor={editor}
+        label={`${kindLabel(kind)} of ${props.sectionName}`} />
+    )
+  }
+  return editor(attach)
 }
 
 const noop = () => {}
@@ -815,8 +853,10 @@ function NameInput({ initial, onDone }: { initial: string; onDone: (name: string
   )
 }
 
+const SECTION_DRAG = 'application/x-verdandi-section'
+
 function SectionRow({
-  id, title, named, heading, primary, secondaries, shown, canShow, collapsed, resizable, onCollapse, height, renaming, menu, onRename, initialText, onShow, onHeight, cell,
+  id, title, named, heading, primary, secondaries, shown, canShow, collapsed, resizable, onCollapse, height, renaming, menu, reorder, onRename, initialText, onShow, onHeight, cell,
 }: {
   id: number
   title: string | null
@@ -838,6 +878,8 @@ function SectionRow({
   renaming: boolean
   /** The section menu's items, or null for a document that cannot be edited. */
   menu: (() => MenuItem[]) | null
+  /** Dragging sections by their grip to reorder them, or null where they can't be. */
+  reorder: { index: number; draggable: boolean; onDrop: (from: number, target: number, after: boolean) => void } | null
   onRename: (name: string | null) => void
   initialText: (kind: CellKind) => string
   onShow: (shown: boolean) => void
@@ -847,6 +889,7 @@ function SectionRow({
   const row = useRef<HTMLDivElement>(null)
   const primaryBody = useRef<HTMLDivElement>(null)
   const [, setMenuOpen] = useState(0)
+  const [dropSide, setDropSide] = useState<'before' | 'after' | null>(null)
   const sectionName = title ?? 'Before the first section'
   const sideName = secondaries.length === 1 ? kindLabel(secondaries[0]).toLowerCase() : 'side panels'
 
@@ -898,6 +941,23 @@ function SectionRow({
     />
   )
 
+  const grip = reorder?.draggable && (
+    <span
+      className="section-grip"
+      draggable
+      role="button"
+      aria-label={`Drag ${sectionName} to move it`}
+      title="Drag to move this section"
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData(SECTION_DRAG, String(reorder.index))
+        if (row.current) event.dataTransfer.setDragImage(row.current, 16, 16)
+      }}
+    >
+      <GripVertical size={14} aria-hidden="true" />
+    </span>
+  )
+
   const collapseButton = onCollapse && (
     <button type="button" className="icon-button section-collapse" onClick={() => onCollapse(!collapsed)}
       aria-expanded={!collapsed} aria-label={collapsed ? `Expand ${sectionName}` : `Collapse ${sectionName}`}
@@ -916,8 +976,26 @@ function SectionRow({
       ref={row}
       className={[
         'section-row', sideShown ? '' : 'secondary-hidden', height ? 'sized' : '', title === null ? 'section-preamble' : '',
-        nameLine ? 'has-name-line' : '', collapsed ? 'collapsed' : '',
+        nameLine ? 'has-name-line' : '', collapsed ? 'collapsed' : '', dropSide ? `drop-${dropSide}` : '',
       ].filter(Boolean).join(' ')}
+      onDragOver={reorder ? (event) => {
+        if (!event.dataTransfer.types.includes(SECTION_DRAG)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        const box = event.currentTarget.getBoundingClientRect()
+        setDropSide(event.clientY > box.top + box.height / 2 ? 'after' : 'before')
+      } : undefined}
+      onDragLeave={reorder ? (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropSide(null)
+      } : undefined}
+      onDrop={reorder ? (event) => {
+        const side = dropSide
+        setDropSide(null)
+        const from = event.dataTransfer.getData(SECTION_DRAG)
+        if (!from || side === null) return
+        event.preventDefault()
+        if (Number(from) !== reorder.index) reorder.onDrop(Number(from), reorder.index, side === 'after')
+      } : undefined}
       style={style}
       data-section={sectionName}
     >
@@ -930,13 +1008,14 @@ function SectionRow({
               onDoubleClick={collapsed && onCollapse ? () => onCollapse(false) : undefined}>{sectionName}</h2>
           )}
           <span className="section-name-rule" aria-hidden="true" />
+          {grip}
           {collapseButton}
           {menuButton}
         </div>
       )}
       {!collapsed && (
         <div className="section-cell section-primary">
-          {!nameLine && <div className="section-menu-float">{collapseButton}{menuButton}</div>}
+          {!nameLine && <div className="section-menu-float">{grip}{collapseButton}{menuButton}</div>}
           <div className="cell-body" ref={primaryBody}>
             <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
           </div>

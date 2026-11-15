@@ -11,7 +11,7 @@ import { layerMaterial, splitSections } from '../shared/document'
 import { finishedText, undeclaredCallouts } from '../shared/layers'
 import { exportMarkdown, plainLinks } from './exporter'
 import { BackupStore, PathGuard } from './fileService'
-import { convertFileToFolder, readFolderDocument, SECTIONS_FILE, writeFolderDocument } from './folderDocument'
+import { addAttachments, convertFileToFolder, readFolderDocument, SECTIONS_FILE, writeFolderDocument } from './folderDocument'
 import { searchableText } from './searchIndex'
 
 const LAYERS = ['notes', 'outline']
@@ -177,5 +177,21 @@ describe('section files renamed outside Obsidian', () => {
     await rename(path.join(folder, 'Two.md'), path.join(folder, 'Deux.md'))
     const document = await readFolderDocument(folder)
     expect(splitSections(document.text, ['notes']).map((section) => section.title)).toEqual(['Three'])
+  })
+})
+
+describe('addAttachments', () => {
+  it('copies images into attachments under free names, skipping anything else', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-images-'))
+    const file = path.join(parent, 'Eras.md')
+    await writeFile(file, '# One\nFirst.\n')
+    const { folder } = await convertFileToFolder(file)
+    const source = await mkdtemp(path.join(tmpdir(), 'verdandi-image-source-'))
+    await writeFile(path.join(source, 'map.png'), 'png bytes')
+    await writeFile(path.join(source, 'notes.txt'), 'not an image')
+    expect(await addAttachments(folder, [path.join(source, 'map.png'), path.join(source, 'notes.txt'), path.join(source, 'missing.png')])).toEqual(['map.png'])
+    expect(await addAttachments(folder, [path.join(source, 'map.png')])).toEqual(['map 2.png'])
+    expect(await readFile(path.join(folder, 'attachments', 'map 2.png'), 'utf8')).toBe('png bytes')
+    await expect(addAttachments(source, [path.join(source, 'map.png')])).rejects.toThrow(/not a document folder/)
   })
 })

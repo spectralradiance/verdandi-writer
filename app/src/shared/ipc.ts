@@ -285,6 +285,8 @@ export interface VerdandiApi {
     restore(undoId: string): Promise<void>
     /** Shows a file in the system file manager (selected), or opens a folder there. */
     reveal(path: string): Promise<void>
+    /** The path on disk of a file dropped into the window, or '' for one that has none. */
+    pathOf(file: File): string
     /** Paths changed on disk under any workspace root (debounced). */
     onChanged(listener: (paths: string[]) => void): () => void
   }
@@ -309,6 +311,12 @@ export interface VerdandiApi {
     /** A document folder's saved views (`.verdandi/views.yaml`). */
     readViews(folder: string): Promise<SavedView[]>
     saveViews(folder: string, views: SavedView[]): Promise<void>
+    /**
+     * Copies images into a document folder's `attachments/`, giving each a free name,
+     * and returns the names they were saved under. Without `files` it asks which; an
+     * empty list means nothing was chosen.
+     */
+    addImages(folder: string, files?: string[]): Promise<string[]>
   }
   dictionary: {
     status(): Promise<DictionaryStatus>
@@ -401,6 +409,7 @@ export const IPC = {
   documentsChangeLayers: 'documents:changeLayers',
   documentsReadViews: 'documents:readViews',
   documentsSaveViews: 'documents:saveViews',
+  documentsAddImages: 'documents:addImages',
   dictionaryStatus: 'dictionary:status',
   dictionaryChoose: 'dictionary:choose',
   dictionaryDownload: 'dictionary:download',

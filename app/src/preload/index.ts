@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
 
 import type { AiEvent } from '../shared/ai'
 import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type SidecarStatus } from '../shared/ipc'
@@ -34,6 +34,7 @@ const api: VerdandiApi = {
     trash: (path) => ipcRenderer.invoke(IPC.filesTrash, path),
     restore: (undoId) => ipcRenderer.invoke(IPC.filesRestore, undoId),
     reveal: (path) => ipcRenderer.invoke(IPC.filesReveal, path),
+    pathOf: (file) => webUtils.getPathForFile(file),
     onChanged: (listener) => {
       const handler = (_event: IpcRendererEvent, paths: string[]): void => listener(paths)
       ipcRenderer.on(IPC.filesChanged, handler)
@@ -55,6 +56,7 @@ const api: VerdandiApi = {
     changeLayers: (folder, change) => ipcRenderer.invoke(IPC.documentsChangeLayers, folder, change),
     readViews: (folder) => ipcRenderer.invoke(IPC.documentsReadViews, folder),
     saveViews: (folder, views) => ipcRenderer.invoke(IPC.documentsSaveViews, folder, views),
+    addImages: (folder, files) => ipcRenderer.invoke(IPC.documentsAddImages, folder, files),
   },
   dictionary: {
     status: () => ipcRenderer.invoke(IPC.dictionaryStatus),

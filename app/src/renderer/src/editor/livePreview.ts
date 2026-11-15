@@ -19,6 +19,30 @@ import { TableWidget } from './tableWidget'
 /** Absolute path of the open file, used to resolve relative image links. */
 export const documentPath = Facet.define<string, string>({ combine: (values) => values[0] ?? '' })
 
+/**
+ * The folder images resolve against, when it is not the open file's folder: a
+ * document folder's own path, whose images are in it (Obsidian keeps them in
+ * `attachments/`).
+ */
+export const imageFolder = Facet.define<string, string>({ combine: (values) => values[0] ?? '' })
+
+/** `![[map.png]]`, `![[map.png|Map]]`, `![[map.png|300]]`: Obsidian's image embeds. */
+export const WIKI_IMAGE = /!\[\[([^\]|#]+\.(?:png|jpe?g|gif|webp|svg|avif|bmp))(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/gi
+
+/**
+ * Where an image embed's file may be, in order: the folder's `attachments/` (where
+ * Obsidian and Verdandi put them), then the folder itself. A path in the embed is
+ * taken from the folder.
+ */
+export function wikiImageSources(name: string, folder: string): string[] {
+  if (!folder) return []
+  const clean = name.trim()
+  if (/^[a-z][a-z0-9+.-]*:/i.test(clean) || clean.startsWith('/') || clean.startsWith('\\')) return []
+  return clean.includes('/')
+    ? [localFileUrl(resolvePath(folder, clean))]
+    : [localFileUrl(resolvePath(folder, `attachments/${clean}`)), localFileUrl(resolvePath(folder, clean))]
+}
+
 export interface Span {
   from: number
   to: number
@@ -109,15 +133,18 @@ class CheckboxWidget extends WidgetType {
 class ImageWidget extends WidgetType {
   readonly src: string
   readonly alt: string
+  /** Other places to look, in order, if the image is not at `src`. */
+  readonly fallbacks: readonly string[]
 
-  constructor(src: string, alt: string) {
+  constructor(src: string, alt: string, fallbacks: readonly string[] = []) {
     super()
     this.src = src
     this.alt = alt
+    this.fallbacks = fallbacks
   }
 
   eq(other: ImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt
+    return other.src === this.src && other.alt === this.alt && other.fallbacks.join('\n') === this.fallbacks.join('\n')
   }
 
   toDOM(): HTMLElement {
@@ -139,7 +166,12 @@ class ImageWidget extends WidgetType {
     image.className = 'cm-md-image'
     image.src = this.src
     image.alt = this.alt
-    image.addEventListener('error', showBroken)
+    const next = [...this.fallbacks]
+    image.addEventListener('error', () => {
+      const source = next.shift()
+      if (source) image.src = source
+      else showBroken()
+    })
     wrapper.append(image)
     return wrapper
   }
@@ -216,7 +248,7 @@ export function buildLiveDecorations(
 ): DecorationSet {
   const decorations: Range<Decoration>[] = []
   const doc = state.doc
-  const documentDirectory = dirname(state.facet(documentPath))
+  const documentDirectory = state.facet(imageFolder) || dirname(state.facet(documentPath))
 
   const lineClass = (position: number, className: string) => {
     decorations.push(Decoration.line({ class: className }).range(doc.lineAt(position).from))
@@ -311,6 +343,8 @@ export function buildLiveDecorations(
   }
 
   const image = (node: SyntaxNode) => {
+    // Markdown reads Obsidian's `![[name]]` as an image of `[name]`; image embeds are shown below, and other embeds stay text.
+    if (doc.sliceString(node.from, node.from + 3) === '![[') return
     if (touches(active, node.from, node.to) || doc.lineAt(node.from).number !== doc.lineAt(node.to).number) {
       mark(node.from, node.to, 'cm-md-image-source')
       return
@@ -431,6 +465,29 @@ export function buildLiveDecorations(
         return undefined
       },
     })
+  }
+  // Obsidian's image embeds, which Markdown itself doesn't know: shown as images, outside code.
+  const inCode = (position: number) => {
+    for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(position, 1); node; node = node.parent) {
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock' || node.name === 'InlineCode') return true
+    }
+    return false
+  }
+  for (const range of ranges) {
+    const text = doc.sliceString(range.from, range.to)
+    for (const match of text.matchAll(WIKI_IMAGE)) {
+      const from = range.from + match.index
+      const to = from + match[0].length
+      if (doc.lineAt(from).number !== doc.lineAt(to).number || inCode(from)) continue
+      if (touches(active, from, to)) {
+        mark(from, to, 'cm-md-image-source')
+        continue
+      }
+      const label = match[2]?.trim()
+      const alt = label && !/^\d+(?:x\d+)?$/.test(label) ? label : match[1].replace(/\.[^.]+$/, '')
+      const [src = '', ...fallbacks] = wikiImageSources(match[1], documentDirectory)
+      replace(from, to, new ImageWidget(src, alt, fallbacks))
+    }
   }
   return Decoration.set(decorations, true)
 }

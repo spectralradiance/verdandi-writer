@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import type { TextDocument, TextFormat, WriteRequest, WriteResult } from '../shared/ipc'
@@ -432,6 +433,39 @@ export async function saveViews(folder: string, views: unknown): Promise<void> {
   const temporary = `${file}.${randomBytes(4).toString('hex')}.tmp`
   await writeFile(temporary, writeViews(clean), 'utf8')
   await rename(temporary, file)
+}
+
+// ---------------------------------------------------------------------------
+// Images
+
+/** Where a document folder keeps its images, as Obsidian does. */
+export const ATTACHMENTS_DIR = 'attachments'
+export const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp)$/i
+
+/**
+ * Copies image files into the document folder's `attachments/` and returns the
+ * names they were saved under: a file's own name, or "name 2.png" when that is
+ * taken. Anything that is not an image file is skipped.
+ */
+export async function addAttachments(folder: string, sources: readonly string[]): Promise<string[]> {
+  if (!(await isFolderDocument(folder))) throw new Error(`${path.basename(folder)} is not a document folder.`)
+  const target = path.join(folder, ATTACHMENTS_DIR)
+  await mkdir(target, { recursive: true })
+  const taken = new Set((await readdir(target)).map((name) => name.toLowerCase()))
+  const saved: string[] = []
+  for (const source of sources) {
+    if (!IMAGE_FILE.test(source)) continue
+    const info = await stat(source).catch(() => null)
+    if (!info?.isFile()) continue
+    const extension = path.extname(source)
+    const base = path.basename(source, extension).replace(/[[\]|#^]/g, ' ').trim() || 'image'
+    let name = `${base}${extension}`
+    for (let count = 2; taken.has(name.toLowerCase()); count += 1) name = `${base} ${count}${extension}`
+    await copyFile(source, path.join(target, name), fsConstants.COPYFILE_EXCL)
+    taken.add(name.toLowerCase())
+    saved.push(name)
+  }
+  return saved
 }
 
 // ---------------------------------------------------------------------------
