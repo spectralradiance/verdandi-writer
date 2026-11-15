@@ -35,7 +35,20 @@ API keys are set in the app under **AI → ⚙ AI settings → Keys** (stored en
 
 ## Documents
 
-A document is one Markdown file. Each `#` heading starts a section (the outline lists them; `##` and deeper stay inside their section), and a section's notes sit under its text in a notes block:
+A document is a folder that Obsidian can open as part of a vault. The **document note**, named after the folder, lists the sections in order as embeds, so reading it in Obsidian shows the whole document. Each section is one Markdown file named after it. The file's body is the section's text, and its notes are `> [!notes]` callouts after the paragraphs they belong to:
+
+```
+Eras/
+  Eras.md              ← ---  verdandi: document, layers: [notes]  ---  then ![[The First Era]] …
+  The First Era.md     ← ---  id: 7f3a  ---  then the text, and > [!notes] callouts
+  .verdandi/           ← the original file, if the document was converted
+```
+
+The sidebar lists a document folder as one document. Renaming a section renames its file (the exact title goes in the file's frontmatter when it can't be a file name), and the document note follows. Moving a section reorders the embeds. Splitting a section makes a new file, merging moves its text into the section above, and deleting it moves its file to the Recycle Bin. Only the files whose section changed are written. Files edited in Obsidian are picked up as they change, and a section file added to the document note in Obsidian becomes a section. **Show name as a heading** is a setting of the file (`heading: false` when it is off): exports show the name as a heading or leave it out.
+
+**Older one-file documents** convert when they're opened. A file that uses notes blocks or section markers (below) becomes a document folder next to where it was: one file per section, with any text before the first heading as "Introduction". The original file is kept in the folder's `.verdandi/original/`, and the notice that appears offers **Undo**, which puts the file back. The file then stays a single file for the rest of the session. Any other Markdown file, such as an ordinary Obsidian note, opens **read-only**, with a **Make this a document** button.
+
+The rest of this section describes the one-file format, which is how older documents are written, and how a file whose conversion was undone keeps working. Each `#` heading starts a section (the outline lists them; `##` and deeper stay inside their section), and a section's notes sit under its text in a notes block:
 
 ```
 # First Light
@@ -60,7 +73,7 @@ Each section has a **⋯ menu** (at the top right of the row): **Rename section*
 
 Edits on either side go straight into the file: notes typed for a section without any start a `::: notes` block at its end, and existing blocks stay where they are in the text. A heading or notes markers typed into a side are sorted into rows when you leave it. **Ctrl+Alt+N** moves between a section's text and notes (showing the other side if it is hidden), and the arrow keys move on to the next or previous section at the end of one. Headings inside notes never start a section. Word counts keep notes apart (the status bar shows "N in notes"), exports leave notes out (or export only the notes), AI Analyze ignores them, and **Draft output from notes** drafts the section at the cursor from its notes.
 
-**New document** (folder right-click, or the + on a folder) makes one.
+**New document** (folder right-click, or the + on a folder) makes a document folder with one empty section, "Introduction".
 
 ## Working in the sidebar
 

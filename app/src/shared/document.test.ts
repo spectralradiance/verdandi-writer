@@ -111,7 +111,7 @@ describe('splitSections', () => {
 
   it('summarizes without the text', () => {
     expect(summarizeSections(SAMPLE)[1]).toEqual({
-      title: 'Stars', named: false, level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
+      title: 'Stars', named: false, heading: false, level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
     })
   })
 })

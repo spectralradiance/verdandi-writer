@@ -101,6 +101,8 @@ interface MarkdownEditorProps {
   extraKeys?: readonly KeyBinding[]
   /** The text was edited, with the changes (not called for `sync`). */
   onChanges?: (changes: ChangeSet, text: string) => void
+  /** Shown and selectable, but not editable. Fixed when the editor is made. */
+  readOnly?: boolean
 }
 
 const noop = () => {}
@@ -111,7 +113,7 @@ const noop = () => {}
  */
 export function MarkdownEditor({
   ref, path, initialText, placeholder, title = '', live, focusMode, notesView = 'all', onShowNotes, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
-  variant = 'document', extraKeys, onChanges,
+  variant = 'document', extraKeys, onChanges, readOnly = false,
 }: MarkdownEditorProps) {
   const container = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -215,6 +217,7 @@ export function MarkdownEditor({
       doc: initialText,
       extensions: [
         documentPath.of(path),
+        EditorState.readOnly.of(readOnly),
         history(),
         drawSelection(),
         dropCursor(),
@@ -274,7 +277,7 @@ export function MarkdownEditor({
       editor.destroy()
       view.current = null
     }
-  }, [path, initialText, placeholder, compartments, variant])
+  }, [path, initialText, placeholder, compartments, variant, readOnly])
 
   useLayoutEffect(() => {
     view.current?.dispatch({ effects: compartments.live.reconfigure(live ? livePreview : []) })

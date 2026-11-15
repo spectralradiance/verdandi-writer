@@ -12,7 +12,11 @@ import { MARGIN_INCHES, normalizePreferences } from '../shared/preferences'
 import { AiBridge } from './aiBridge'
 import { Dictionary } from './dictionary'
 import { exportMarkdown, writeExport } from './exporter'
-import { BackupStore, PathGuard, readTextDocument, writeTextDocument } from './fileService'
+import { BackupStore, PathGuard, writeTextDocument } from './fileService'
+import {
+  convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
+  trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
+} from './folderDocument'
 import { LexiconStore } from './lexicon'
 import { DEFAULT_PROMPTS, PromptStore, renderTemplate } from './prompts'
 import { SearchIndex } from './searchIndex'
@@ -27,7 +31,7 @@ import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
 import { WorkspaceWatcher } from './watcher'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
-  createFolder, readFolder, renameFile, renameFolder, restoreFile, trashFile, type TrashedFile,
+  createFolder, readFolder, renameFile, renameFolder, restoreFile, trashFile, type TrashedFile, validateName,
 } from './workspaceService'
 
 // Lets tests and experiments run against a throwaway profile instead of the real one.
@@ -163,7 +167,7 @@ function dictionaryStatus(): DictionaryStatus {
 }
 
 /** Recently deleted files, held so Undo can write them back. */
-const trashedFiles = new Map<string, TrashedFile>()
+const trashedFiles = new Map<string, { file: TrashedFile } | { folder: TrashedFolder }>()
 
 let dictionaryDownload: AbortController | null = null
 
@@ -298,11 +302,13 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.filesRead, (_event, path: unknown, options?: { allowMissing?: boolean }) =>
-    readTextDocument(guard.resolve(path), options?.allowMissing === true))
+    readDocument(guard.resolve(path), options?.allowMissing === true))
   ipcMain.handle(IPC.filesWrite, async (_event, request: WriteRequest) => {
     const target = guard.resolve(request?.path)
-    const before = await readTextDocument(target, true).then((document) => (document.mtimeMs === null ? null : document.text), () => null)
-    const result = await writeTextDocument(target, request, backups)
+    const before = await readDocument(target, true).then((document) => (document.mtimeMs === null ? null : document.text), () => null)
+    const result = await isFolderDocument(target)
+      ? await writeFolderDocument(target, request, backups, (file) => shell.trashItem(file))
+      : await writeTextDocument(target, request, backups)
     if (result.ok) {
       void snapshots.afterSave(target, request.text).catch(() => {})
       writingStats.recordSave(before, request.text)
@@ -381,7 +387,7 @@ function registerIpc(): void {
     const owner = BrowserWindow.fromWebContents(event.sender)
     const choice = owner ? await dialog.showSaveDialog(owner, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
     if (choice.canceled || !choice.filePath) return null
-    const { text: content } = await readTextDocument(source)
+    const { text: content } = await readDocument(source)
     const { markdown, sections, skipped } = exportMarkdown(content, text(title), options)
     await writeExport(choice.filePath, options.format, markdown, text(title), dirname(source), printToPdf, settings.get().preferences.export)
     return { path: choice.filePath, sections, skipped }
@@ -440,9 +446,16 @@ function registerIpc(): void {
     await fetch(`${connection.baseUrl}/ai/local/unload`, { method: 'POST', headers: { Authorization: `Bearer ${connection.token}` } })
   })
 
-  ipcMain.handle(IPC.filesRename, (_event, file: unknown, name: unknown) => renameFile(guard.resolve(file), text(name)))
+  ipcMain.handle(IPC.filesRename, async (_event, file: unknown, name: unknown) => {
+    const target = guard.resolve(file)
+    return (await isFolderDocument(target)) ? renameFolderDocument(target, text(name).trim()) : renameFile(target, text(name))
+  })
   ipcMain.handle(IPC.filesTrash, async (_event, file: unknown) => {
-    const trashed = await trashFile(guard.resolve(file), (target) => shell.trashItem(target))
+    const target = guard.resolve(file)
+    const trash = (item: string) => shell.trashItem(item)
+    const trashed = (await isFolderDocument(target))
+      ? { folder: await trashFolderDocument(target, trash) }
+      : { file: await trashFile(target, trash) }
     const undoId = randomUUID()
     trashedFiles.set(undoId, trashed)
     if (trashedFiles.size > 20) trashedFiles.delete(trashedFiles.keys().next().value as string)
@@ -451,9 +464,20 @@ function registerIpc(): void {
   ipcMain.handle(IPC.filesRestore, async (_event, undoId: unknown) => {
     const entry = trashedFiles.get(text(undoId))
     if (!entry) throw new Error('That deletion can no longer be undone.')
-    await restoreFile(entry)
+    if ('folder' in entry) await restoreFolderDocument(entry.folder)
+    else await restoreFile(entry.file)
     trashedFiles.delete(text(undoId))
   })
+  ipcMain.handle(IPC.documentsCreate, async (_event, parent: unknown, name: unknown) => {
+    const error = validateName(text(name))
+    if (error) throw new Error(error)
+    return createFolderDocument(guard.resolve(parent), text(name).trim())
+  })
+  ipcMain.handle(IPC.documentsConvert, async (_event, file: unknown) => {
+    const converted = await convertFileToFolder(guard.resolve(file))
+    return converted.folder
+  })
+  ipcMain.handle(IPC.documentsUndoConvert, (_event, folder: unknown) => undoConversion(guard.resolve(folder), (item) => shell.trashItem(item)))
   ipcMain.handle(IPC.filesReveal, async (_event, target: unknown) => {
     const resolved = guard.resolve(target)
     if ((await stat(resolved)).isDirectory()) {

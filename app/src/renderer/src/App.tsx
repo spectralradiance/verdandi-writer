@@ -157,6 +157,10 @@ export function App() {
   }, [target, flushAll, changeTarget])
 
   const [undo, setUndo] = useState<{ undoId: string; title: string; path: string } | null>(null)
+  /** A one-file document just made into a document folder, which can still be undone. */
+  const [converted, setConverted] = useState<{ folder: string; original: string } | null>(null)
+  /** One-file documents whose conversion was undone: they stay files for this session. */
+  const [keptFiles, setKeptFiles] = useState<ReadonlySet<string>>(() => new Set())
 
   useEffect(() => {
     if (!undo) return
@@ -179,6 +183,30 @@ export function App() {
       window.alert(errorMessage(error))
     }
   }, [target, flushAll, changeTarget])
+
+  useEffect(() => {
+    if (!converted) return
+    const timer = window.setTimeout(() => setConverted(null), 20000)
+    return () => window.clearTimeout(timer)
+  }, [converted])
+
+  const onConverted = useCallback((folder: string, original: string) => {
+    changeTarget({ path: folder })
+    setConverted({ folder, original })
+  }, [changeTarget])
+
+  const undoConversion = useCallback(async () => {
+    if (!converted) return
+    setConverted(null)
+    if (!(await flushAll()) && !window.confirm('Some changes could not be saved. Undo the conversion anyway and lose them?')) return
+    try {
+      const file = await window.verdandi.documents.undoConvert(converted.folder)
+      setKeptFiles((current) => new Set([...current, file.toLowerCase()]))
+      changeTarget({ path: file })
+    } catch (error) {
+      window.alert(errorMessage(error))
+    }
+  }, [converted, flushAll, changeTarget])
 
   const undoDelete = useCallback(() => {
     if (!undo) return
@@ -548,6 +576,8 @@ export function App() {
             onFocus={() => setActive({ path: target.path })}
             onSelectWord={(word) => callbacks.onSelectWord(target.path, word)}
             onClose={() => changeTarget(null)}
+            keepAsFile={keptFiles.has(target.path.toLowerCase())}
+            onConverted={onConverted}
           />
         )}
         {!target && (
@@ -611,6 +641,16 @@ export function App() {
         }}
         onSettings={() => setAppSettingsOpen(true)}
       />
+      {converted && (
+        <div
+          className="fixed bottom-10 left-4 z-20 flex items-center gap-2.5 rounded-md border border-border bg-raised py-1.5 pr-2 pl-3.5 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]"
+          role="status"
+        >
+          <span>“{folderName(converted.original).replace(/\.[^.]+$/, '')}” is now a folder with a file for each section.</span>
+          <button type="button" onClick={() => void undoConversion()}>Undo</button>
+          <button type="button" className="icon-button" onClick={() => setConverted(null)} aria-label="Dismiss"><X size={14} aria-hidden="true" /></button>
+        </div>
+      )}
       {undo && (
         <div
           className="fixed bottom-10 left-4 z-20 flex items-center gap-2.5 rounded-md border border-border bg-raised py-1.5 pr-2 pl-3.5 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]"

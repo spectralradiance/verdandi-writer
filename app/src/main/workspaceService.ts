@@ -9,7 +9,7 @@ export async function readFolder(folder: string): Promise<FolderListing> {
   const entries = await listDirectory(folder)
   return {
     folders: entries.filter((entry) => entry.kind === 'dir').map((entry) => entry.name),
-    files: entries.filter((entry) => entry.kind === 'file').map((entry) => entry.name),
+    files: entries.filter((entry) => entry.kind !== 'dir').map((entry) => entry.name),
   }
 }
 

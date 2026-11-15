@@ -231,19 +231,11 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
     setOpen(true)
     setEditing(kind)
   }
+  // A new document is a document folder: a document note and a file for each section.
   const createDocument = (name: string) => {
     setEditing(null)
-    const file = joinPath(path, /\.(md|markdown|txt)$/i.test(name) ? name : `${name}.md`)
-    window.verdandi.files.write({
-      path: file,
-      text: '',
-      format: { encoding: 'utf-8', eol: '\n', mixedEol: false },
-      expectedMtimeMs: null,
-    }).then(
-      (result) => {
-        if (!result.ok) throw new Error(`“${folderName(file)}” already exists here.`)
-        tree.open({ path: file })
-      },
+    window.verdandi.documents.create(path, name.replace(/\.(md|markdown|txt)$/i, '')).then(
+      (folder) => tree.open({ path: folder }),
       (reason: unknown) => window.alert(errorMessage(reason)),
     )
   }

@@ -48,6 +48,11 @@ const api: VerdandiApi = {
     rename: (path, name) => ipcRenderer.invoke(IPC.foldersRename, path, name),
     trash: (path) => ipcRenderer.invoke(IPC.foldersTrash, path),
   },
+  documents: {
+    create: (parent, name) => ipcRenderer.invoke(IPC.documentsCreate, parent, name),
+    convert: (path) => ipcRenderer.invoke(IPC.documentsConvert, path),
+    undoConvert: (folder) => ipcRenderer.invoke(IPC.documentsUndoConvert, folder),
+  },
   dictionary: {
     status: () => ipcRenderer.invoke(IPC.dictionaryStatus),
     choose: () => ipcRenderer.invoke(IPC.dictionaryChoose),

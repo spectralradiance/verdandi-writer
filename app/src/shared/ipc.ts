@@ -78,6 +78,8 @@ export interface TextDocument {
   /** null when the file does not exist yet (read with `allowMissing`). */
   mtimeMs: number | null
   size: number
+  /** A document folder shown as one text (PLAN.md §3b); `mtimeMs` then changes when any of its files does. */
+  folder?: boolean
 }
 
 export interface WriteRequest {
@@ -99,7 +101,11 @@ export interface FolderListing {
 }
 
 export type WriteResult =
-  | { ok: true; mtimeMs: number; size: number; format: TextFormat; notice: string | null }
+  /**
+   * `text`: for a document folder, the saved text with ids given to new sections'
+   * markers; the editor takes it if nothing was typed meanwhile.
+   */
+  | { ok: true; mtimeMs: number; size: number; format: TextFormat; notice: string | null; text?: string }
   | { ok: false; reason: 'conflict'; diskMtimeMs: number }
 
 export interface DictionarySense {
@@ -271,6 +277,15 @@ export interface VerdandiApi {
     /** Moves a folder and everything in it to the Recycle Bin. Workspace roots cannot be deleted. */
     trash(path: string): Promise<void>
   }
+  /** Document folders (PLAN.md §3b): a document note and one file per section. */
+  documents: {
+    /** Makes a new document folder with one empty section and returns its path. */
+    create(parent: string, name: string): Promise<string>
+    /** Turns a one-file document into a document folder and returns the folder's path. */
+    convert(path: string): Promise<string>
+    /** Puts the one-file original back, trashes the folder, and returns the file's path. */
+    undoConvert(folder: string): Promise<string>
+  }
   dictionary: {
     status(): Promise<DictionaryStatus>
     /** Lets the user pick a wiktionary.db file. */
@@ -356,6 +371,9 @@ export const IPC = {
   foldersRead: 'folders:read',
   foldersCreate: 'folders:create',
   foldersRename: 'folders:rename',
+  documentsCreate: 'documents:create',
+  documentsConvert: 'documents:convert',
+  documentsUndoConvert: 'documents:undoConvert',
   dictionaryStatus: 'dictionary:status',
   dictionaryChoose: 'dictionary:choose',
   dictionaryDownload: 'dictionary:download',

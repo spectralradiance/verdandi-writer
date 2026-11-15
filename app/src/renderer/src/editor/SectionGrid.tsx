@@ -8,7 +8,7 @@ import { DropdownMenu, type MenuItem } from '../menu'
 import { readPref, writePref } from '../prefs'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
 import {
-  applyChange, type CellKind, changedRun, continuedName, deleteSection, fromSectionOffset, joinSections, mergeIntoPrevious, moveSection, partition,
+  applyChange, type CellKind, changedRun, continuedName, deleteSection, fromSectionOffset, isFolderText, joinSections, mergeIntoPrevious, moveSection, partition,
   project, type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble,
   splitSection, toSectionOffset,
 } from './sectionModel'
@@ -35,6 +35,7 @@ interface Row {
   text: string
   title: string | null
   named: boolean
+  heading: boolean
   output: Projection
   notes: Projection
 }
@@ -43,6 +44,8 @@ interface RowMeta {
   id: number
   title: string | null
   named: boolean
+  /** A document folder's section whose name is a heading in exports. */
+  heading: boolean
 }
 
 export interface SectionGridProps {
@@ -57,6 +60,8 @@ export interface SectionGridProps {
   secondaryShown: boolean
   live: boolean
   focusMode: boolean
+  /** Shows the document without letting it be edited (an ordinary note, not a Verdandi document). */
+  readOnly?: boolean
   onDocChanged: () => void
   onSave: () => void
   onBlur: () => void
@@ -70,12 +75,15 @@ const other = (kind: CellKind): CellKind => (kind === 'output' ? 'notes' : 'outp
 const cellKey = (id: number, kind: CellKind) => `${id}:${kind}`
 /** Per-section settings are remembered by name, so they survive reopening the file. */
 const rowKey = (title: string | null) => title ?? '\u0000before-first-heading'
-const metaOf = ({ id, title, named }: Row): RowMeta => ({ id, title, named })
+const metaOf = ({ id, title, named, heading }: Row): RowMeta => ({ id, title, named, heading })
 
 let nextRowId = 1
 
-function makeRow(section: { text: string; title: string | null; named: boolean }, id = nextRowId++): Row {
-  return { id, text: section.text, title: section.title, named: section.named, output: project(section.text, 'output'), notes: project(section.text, 'notes') }
+function makeRow(section: { text: string; title: string | null; named: boolean; heading: boolean }, id = nextRowId++): Row {
+  return {
+    id, text: section.text, title: section.title, named: section.named, heading: section.heading,
+    output: project(section.text, 'output'), notes: project(section.text, 'notes'),
+  }
 }
 
 function readRecord<T>(key: string): Record<string, T> {
@@ -92,7 +100,7 @@ function writeRecord(key: string, value: Record<string, unknown>): void {
 }
 
 export function SectionGrid({
-  ref, path, initialText, title, primary, secondaryShown, live, focusMode, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
+  ref, path, initialText, title, primary, secondaryShown, live, focusMode, readOnly = false, onDocChanged, onSave, onBlur, onFocus, onSelectWord,
 }: SectionGridProps) {
   // Built once; the model and the rendered rows both start from it.
   const [initial] = useState(() => {
@@ -201,7 +209,8 @@ export function SectionGrid({
     }
     rows.current = next
     const changed = next.length !== before.length
-      || next.some((row, index) => row.id !== before[index].id || row.title !== before[index].title || row.named !== before[index].named)
+      || next.some((row, index) => row.id !== before[index].id || row.title !== before[index].title || row.named !== before[index].named
+        || row.heading !== before[index].heading)
     const preamble = showsPreamble(sections)
     setMeta((current) => (changed || current.preamble !== preamble ? { rows: next.map(metaOf), preamble } : current))
   }, [])
@@ -319,12 +328,13 @@ export function SectionGrid({
 
   /** Starts a named section at the cursor (see `planSplit`), then asks for its name. */
   const splitAtCursor = useCallback((id: number) => {
+    if (readOnly) return false
     const index = rows.current.findIndex((row) => row.id === id)
     if (!applyText(planSplit(id))) return false
     const created = rows.current[index + 1]
     if (created) startRename(created.id)
     return true
-  }, [applyText, planSplit, startRename])
+  }, [applyText, planSplit, startRename, readOnly])
 
   const keysFor = useCallback((id: number, kind: CellKind): KeyBinding[] => {
     const atEdge = (view: EditorView, forward: boolean) => {
@@ -479,16 +489,21 @@ export function SectionGrid({
     const nextRow = meta.rows[index + 1]
     const firstTitled = meta.rows[0]?.title === null ? 1 : 0
     const withText = (change: (text: string) => string | null, undoable = false) => () => applyText(change(getText()), undoable)
+    // In a document folder every section is a file with a name; a heading is a setting of the file.
+    const folder = isFolderText(getText())
+    const asHeading = !rowMeta.named || rowMeta.heading
     const items: MenuItem[] = []
     if (titled) {
       items.push(
         { label: 'Rename section', onClick: () => startRename(rowMeta.id) },
         {
           label: 'Show name as a heading',
-          checked: !rowMeta.named,
-          title: 'A heading is part of the text (and of exports). Without one, the name only labels the section here.',
+          checked: asHeading,
+          title: folder
+            ? 'Exports show the name as a heading. Without one, the name only labels the section here.'
+            : 'A heading is part of the text (and of exports). Without one, the name only labels the section here.',
           // Not undoable in the editor: undoing there would drop the heading line and the section with it.
-          onClick: withText((text) => setSectionHeading(text, index, rowMeta.named)),
+          onClick: withText((text) => setSectionHeading(text, index, !asHeading)),
         },
         'separator',
         { label: 'Move up', disabled: index <= firstTitled, onClick: withText((text) => moveSection(text, index, -1)) },
@@ -496,7 +511,7 @@ export function SectionGrid({
         {
           label: `Merge into ${previous?.title ? `“${previous.title}”` : 'the text above'}`,
           disabled: !previous || (previous.title === null && !meta.preamble),
-          title: rowMeta.named ? 'The name is removed' : 'The heading becomes a subheading',
+          title: asHeading ? 'The heading becomes a subheading' : 'The name is removed',
           onClick: withText((text) => mergeIntoPrevious(text, index)),
         },
       )
@@ -557,12 +572,13 @@ export function SectionGrid({
             id={rowMeta.id}
             title={rowMeta.title}
             named={rowMeta.named}
+            heading={rowMeta.heading}
             primary={primary}
             secondary={secondary}
             shown={shown}
             height={height}
             renaming={renaming === rowMeta.id}
-            menu={() => menuFor(index, shown, height !== undefined)}
+            menu={readOnly ? null : () => menuFor(index, shown, height !== undefined)}
             onRename={(name) => {
               setRenaming(null)
               if (name !== null) applyText(renameSection(getText(), index, name), true)
@@ -575,6 +591,7 @@ export function SectionGrid({
               path,
               live,
               focusMode,
+              readOnly,
               register,
               keys: keysFor(rowMeta.id, kind),
               onChanges: (changes: ChangeSet, text: string) => onCellChanges(rowMeta.id, kind, changes, text),
@@ -600,6 +617,7 @@ interface CellProps {
   path: string
   live: boolean
   focusMode: boolean
+  readOnly: boolean
   register: (key: string, handle: MarkdownEditorHandle | null) => void
   keys: KeyBinding[]
   onChanges: (changes: ChangeSet, text: string) => void
@@ -629,6 +647,7 @@ function Cell({ id, kind, initialText, props }: { id: number; kind: CellKind; in
       placeholder={PLACEHOLDER[kind]}
       live={props.live}
       focusMode={props.focusMode}
+      readOnly={props.readOnly}
       extraKeys={props.keys}
       onChanges={props.onChanges}
       onDocChanged={noop}
@@ -669,17 +688,19 @@ function NameInput({ initial, onDone }: { initial: string; onDone: (name: string
 }
 
 function SectionRow({
-  id, title, named, primary, secondary, shown, height, renaming, menu, onRename, initialText, onShow, onHeight, cell,
+  id, title, named, heading, primary, secondary, shown, height, renaming, menu, onRename, initialText, onShow, onHeight, cell,
 }: {
   id: number
   title: string | null
   named: boolean
+  heading: boolean
   primary: CellKind
   secondary: CellKind
   shown: boolean
   height: number | undefined
   renaming: boolean
-  menu: () => MenuItem[]
+  /** The section menu's items, or null for a document that cannot be edited. */
+  menu: (() => MenuItem[]) | null
   onRename: (name: string | null) => void
   initialText: (kind: CellKind) => string
   onShow: (shown: boolean) => void
@@ -728,7 +749,7 @@ function SectionRow({
     handle.addEventListener('pointercancel', end)
   }
 
-  const menuButton = (
+  const menuButton = menu && (
     <DropdownMenu
       items={menu()}
       trigger={(
@@ -752,11 +773,11 @@ function SectionRow({
       data-section={sectionName}
     >
       {nameLine && (
-        <div className={`section-name-line${named ? ' named' : ''}`}>
+        <div className={`section-name-line${named && !heading ? ' named' : ''}`}>
           {renaming && title !== null ? (
             <NameInput initial={title} onDone={onRename} />
           ) : (
-            <h2 className="section-name" title={named ? 'Section name (not a heading in the text)' : 'Section heading'}>{sectionName}</h2>
+            <h2 className="section-name" title={named && !heading ? 'Section name (not a heading in the text)' : 'Section heading'}>{sectionName}</h2>
           )}
           <span className="section-name-rule" aria-hidden="true" />
           {menuButton}
