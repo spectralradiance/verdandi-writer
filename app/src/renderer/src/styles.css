@@ -2224,7 +2224,7 @@ body.resizing {
   top: -8px;
   z-index: 6;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: var(--row-columns, minmax(0, 1fr) minmax(0, 1fr));
   align-items: stretch;
   margin-top: -8px;
   border-bottom: 1px solid var(--border);
@@ -2276,6 +2276,25 @@ button.section-bar-title:hover {
   background: var(--surface);
 }
 
+.section-bar-reading {
+  grid-column: 1;
+}
+
+/* A column beside the first: its tabs (or the names of its stacked layers), and on
+   the last one the Arrange and Hide buttons. Its left edge is dragged to set widths. */
+.section-bar-column:not(.section-bar-reading) {
+  grid-column: var(--column, 2);
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+}
+
+.section-grid.secondary-off .section-bar-column:not(.section-bar-reading) {
+  border-left: none;
+}
+
 .section-bar-tabs {
   display: flex;
   align-items: stretch;
@@ -2284,11 +2303,39 @@ button.section-bar-title:hover {
   padding: 0 8px 0 12px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-left: 1px solid var(--border);
 }
 
-.section-grid.secondary-off .section-bar-tabs {
-  border-left: none;
+.section-bar-stack .section-tab {
+  cursor: default;
+}
+
+.section-bar-stack .section-tab + .section-tab::before {
+  content: '·';
+  margin-right: 10px;
+  color: var(--muted);
+}
+
+.section-bar-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-right: 6px;
+  color: var(--muted);
+}
+
+.section-bar-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  z-index: 1;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.section-bar-divider:hover,
+.section-bar-divider:active {
+  background: linear-gradient(var(--accent), var(--accent)) no-repeat center / 2px 100%;
 }
 
 .section-tab {
@@ -2312,11 +2359,6 @@ button.section-bar-title:hover {
   border-bottom-color: var(--accent);
 }
 
-.section-tab-close {
-  margin-left: auto;
-  color: var(--muted);
-}
-
 .section-doc-title {
   margin: 28px auto 22px;
   padding: 0.5em 16px 0.7em;
@@ -2334,7 +2376,7 @@ button.section-bar-title:hover {
 .section-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: var(--row-columns, minmax(0, 1fr) minmax(0, 1fr));
   border-top: 1px solid var(--border);
 }
 
@@ -2353,10 +2395,6 @@ button.section-bar-title:hover {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.section-row.sized {
-  height: var(--row-height);
-}
-
 .section-cell {
   display: flex;
   flex-direction: column;
@@ -2364,13 +2402,8 @@ button.section-bar-title:hover {
   min-height: 0;
 }
 
-.section-row.sized .section-primary .cell-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Beside the primary side, the secondary one takes the row's height and scrolls. */
+/* Beside the primary side, the secondary one spans the row (as tall as the primary
+   text) without making it taller. */
 .section-secondary {
   position: relative;
   border-left: 1px solid var(--border);
@@ -2380,20 +2413,35 @@ button.section-bar-title:hover {
 .section-secondary > .cell-stack {
   position: absolute;
   inset: 0;
+}
+
+/* A column beside a row stays in view under the bar while a long row scrolls past,
+   as tall as its own text up to the row's height or the visible height, whichever
+   is less; past that it scrolls. Stacked layers share that height. */
+.cell-sticky {
+  position: sticky;
+  /* Sticky offsets count from inside the grid's 8px top padding, as the bar's does. */
+  top: calc(var(--bar-height, 0px) - 8px);
+  max-height: min(100%, calc(var(--view-height, 100vh) - var(--bar-height, 0px)));
   display: flex;
   flex-direction: column;
 }
 
-/* Each layer the view shows beside the primary one: a panel that shares the row's height. */
-.cell-stack > .cell-frame {
-  flex: 1 1 0;
-  min-height: 0;
+.cell-sticky > .cell-frame {
+  flex: 0 1 auto;
+  min-height: 3.5rem;
   display: flex;
   flex-direction: column;
 }
 
-.cell-stack > .cell-frame + .cell-frame {
+.cell-sticky > .cell-frame + .cell-frame {
   border-top: 1px dashed var(--border);
+}
+
+/* Layers under the primary one, in the first column: as tall as their text. */
+.cell-under > .cell-frame {
+  border-top: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--surface) 40%, var(--bg));
 }
 
 .section-secondary .cell-body {
@@ -2434,8 +2482,11 @@ button.section-bar-title:hover {
   padding: 14px 10px 0 24px;
 }
 
+.section-secondary {
+  grid-column: var(--column, 2);
+}
+
 .has-name-line .section-secondary {
-  grid-column: 2;
   grid-row: 1 / -1;
 }
 
@@ -2587,7 +2638,13 @@ button.section-bar-title:hover {
   position: static;
 }
 
-.page-mode .cell-stack > .cell-frame {
+.page-mode .cell-sticky {
+  position: static;
+  max-height: none;
+}
+
+.page-mode .cell-sticky > .cell-frame,
+.page-mode .cell-sticky > .cell-frame + .cell-frame {
   flex: none;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 55%, var(--bg));
@@ -2597,6 +2654,7 @@ button.section-bar-title:hover {
   overflow: visible;
 }
 
+.page-mode .section-secondary,
 .page-mode .has-name-line .section-secondary {
   grid-column: auto;
   grid-row: auto;
@@ -2611,51 +2669,29 @@ button.section-bar-title:hover {
   font-size: 12px;
 }
 
-.section-resize {
-  position: absolute;
-  right: 0;
-  bottom: -4px;
-  left: 0;
-  z-index: 2;
-  height: 8px;
-  cursor: row-resize;
-}
-
-.section-resize:hover,
-.section-row.resizing .section-resize {
-  background: linear-gradient(var(--accent), var(--accent)) no-repeat center / 100% 2px;
-}
-
-.section-row.resizing {
-  user-select: none;
-}
-
 .cell-host {
   min-width: 0;
 }
 
 /* Narrow (a phone, or a squeezed window): one column, the secondary side under the
-   primary one, at most as tall as the primary text (or the height it was given). */
+   primary one, at most as tall as the primary text. */
 @container section-grid (max-width: 720px) {
   .section-bar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
   }
 
-  .section-bar-tabs {
+  .section-bar-reading {
+    flex: 1 1 auto;
+  }
+
+  .section-bar-column:not(.section-bar-reading) {
     border-left: none;
   }
 
   .section-row,
   .section-row.secondary-hidden {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .section-row.sized {
-    height: auto;
-  }
-
-  .section-row.sized .section-primary .cell-body {
-    max-height: var(--row-height);
   }
 
   .section-secondary {
@@ -2668,14 +2704,20 @@ button.section-bar-title:hover {
     position: static;
   }
 
-  .cell-stack > .cell-frame {
+  .cell-sticky {
+    position: static;
+    max-height: none;
+  }
+
+  .cell-sticky > .cell-frame {
     flex: none;
   }
 
   .section-secondary .cell-body {
-    max-height: var(--row-height, max(7rem, var(--fit-height, 12rem)));
+    max-height: max(7rem, var(--fit-height, 12rem));
   }
 
+  .section-secondary,
   .has-name-line .section-secondary {
     grid-column: auto;
     grid-row: auto;
@@ -2696,14 +2738,6 @@ button.section-bar-title:hover {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.layout-stacked .section-row.sized {
-  height: auto;
-}
-
-.layout-stacked .section-row.sized .section-primary .cell-body {
-  max-height: var(--row-height);
-}
-
 .layout-stacked .section-secondary {
   position: static;
   border-left: 0;
@@ -2714,17 +2748,37 @@ button.section-bar-title:hover {
   position: static;
 }
 
-.layout-stacked .cell-stack > .cell-frame {
+.layout-stacked .cell-sticky {
+  position: static;
+  max-height: none;
+}
+
+.layout-stacked .cell-sticky > .cell-frame {
   flex: none;
 }
 
 .layout-stacked .section-secondary .cell-body {
-  max-height: var(--row-height, max(7rem, var(--fit-height, 12rem)));
+  max-height: max(7rem, var(--fit-height, 12rem));
 }
 
+.layout-stacked .section-secondary,
 .layout-stacked .has-name-line .section-secondary {
   grid-column: auto;
   grid-row: auto;
+}
+
+/* The bar in one column: the section's name, then each column's tabs, wrapping. */
+.layout-stacked .section-bar {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.layout-stacked .section-bar-reading {
+  flex: 1 1 auto;
+}
+
+.layout-stacked .section-bar-column:not(.section-bar-reading) {
+  border-left: none;
 }
 
 /* A view filtered or with sections hidden: the Views button says so. */
@@ -2815,3 +2869,142 @@ button.section-bar-title:hover {
 .section-grid.primary-list .section-name-line { padding-top: 8px; }
 .section-grid.primary-list .section-name { font-size: 1.05em; }
 .section-grid.primary-list .section-row { border-top-style: dashed; }
+
+/* Arrange view: the columns drawn at their widths, with the layers in them. */
+.arrange-dialog {
+  width: min(980px, 100%);
+}
+
+.arrange-columns {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  margin: 12px 0 16px;
+}
+
+.arrange-column {
+  flex: 1 1 0;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+}
+
+.arrange-new {
+  flex: 0 0 170px;
+  border-style: dashed;
+  background: none;
+}
+
+.arrange-column-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arrange-column-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+}
+
+.arrange-sub {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.arrange-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px;
+  border: 1px dashed transparent;
+  border-radius: 5px;
+}
+
+.arrange-columns + .arrange-sub + .arrange-list {
+  flex-flow: row wrap;
+}
+
+.arrange-list.over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.arrange-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.arrange-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  font-size: 13px;
+  cursor: grab;
+}
+
+.arrange-chip.primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  font-weight: 600;
+}
+
+.arrange-chip.drop-before {
+  box-shadow: 0 -3px 0 var(--accent);
+}
+
+.arrange-chip-name {
+  flex: 1;
+}
+
+.arrange-grip {
+  color: var(--muted);
+}
+
+.arrange-mode button {
+  flex: 1;
+  font-size: 12px;
+}
+
+.arrange-width {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.arrange-layout {
+  display: flex;
+  gap: 18px;
+  margin: 14px 0 0;
+  padding: 0;
+  border: none;
+  font-size: 13px;
+}
+
+.arrange-layout legend {
+  float: left;
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.arrange-footer .arrange-spacer {
+  flex: 1;
+}

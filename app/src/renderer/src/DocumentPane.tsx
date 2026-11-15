@@ -5,7 +5,7 @@ import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
 import { type FieldChange, type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
-import { type DocumentView, fieldValues, type SavedView } from '../../shared/views'
+import { type DocumentView, fieldValues, renameInView, type SavedView, showLayer } from '../../shared/views'
 import { loadView, storeView } from './documentView'
 import { readPref, writePref } from './prefs'
 import { extractHeadings, type Heading } from '../../shared/text'
@@ -15,6 +15,7 @@ import { SectionGrid } from './editor/SectionGrid'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { ViewControls } from './ViewControls'
+import { ArrangeViewDialog } from './ArrangeView'
 import { FieldsDialog, FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
 import { History, X } from 'lucide-react'
 
@@ -146,7 +147,7 @@ export function DocumentPane({
   const [view, setView] = useState<DocumentView | null>(null)
   const [savedViews, setSavedViews] = useState<SavedView[]>([])
   const [activeView, setActiveView] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
+  const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | 'arrange' | null>(null)
   const [layerBusy, setLayerBusy] = useState(false)
   const [layerError, setLayerError] = useState<string | null>(null)
   /** The section whose fields are being edited, by its id. */
@@ -420,16 +421,15 @@ export function DocumentPane({
       if (!(await save())) throw new Error('your edits could not be saved first')
       await window.verdandi.documents.changeLayers(path, change)
       // The view and the saved views follow a renamed or deleted layer.
-      const follow = (current: DocumentView): DocumentView => {
-        const map = (kind: string): string | null => ('rename' in change && kind === change.rename ? change.to : 'remove' in change && kind === change.remove ? null : kind)
-        const shown = current.shown.map(map).filter((kind): kind is string => kind !== null)
-        return { ...current, primary: map(current.primary) ?? 'output', shown }
-      }
+      const follow = (current: DocumentView): DocumentView => (
+        'rename' in change ? renameInView(current, change.rename, change.to) : 'remove' in change ? renameInView(current, change.remove, null) : current
+      )
       if ('rename' in change || 'remove' in change) {
         if (view) storeView(path, follow(view))
         if (savedViews.length) storeSaved(savedViews.map((saved) => ({ ...saved, ...follow(saved) })))
       } else if ('add' in change && view) {
-        storeView(path, { ...view, shown: view.shown.length ? [change.add.name] : view.shown })
+        // A new layer joins the first column beside the text, showing.
+        storeView(path, showLayer(view, change.add.name))
       }
       setNotice(`${label}.`)
       await load()
@@ -533,11 +533,27 @@ export function DocumentPane({
               setActiveView(null)
             }}
             onFilter={() => setDialog('filter')}
+            onArrange={() => setDialog('arrange')}
             onManageLayers={loaded.document.folder ? () => setDialog('layers') : undefined}
           />
         )}
         {headerActions}
       </header>
+      {dialog === 'arrange' && view && loaded && (
+        <ArrangeViewDialog
+          layers={loaded.document.layers ?? [NOTES_LAYER]}
+          view={view}
+          onClose={() => setDialog(null)}
+          onApply={(next) => {
+            changeView(() => next)
+            setDialog(null)
+          }}
+          onSaveAs={loaded.document.folder ? (next) => {
+            changeView(() => next)
+            setDialog('save')
+          } : undefined}
+        />
+      )}
       {dialog === 'save' && view && (
         <SaveViewDialog
           taken={savedViews.map((saved) => saved.name)}
@@ -651,6 +667,7 @@ export function DocumentPane({
           onViewChange={changeView}
           fields={loaded.document.fields}
           onManageLayers={loaded.document.folder && mode === 'edit' ? () => setDialog('layers') : undefined}
+          onArrange={() => setDialog('arrange')}
           onEditFields={loaded.document.folder && mode === 'edit' ? (id, title) => setEditingFields({ id, title }) : undefined}
           onDocChanged={onDocChanged}
           onSave={() => void save()}
