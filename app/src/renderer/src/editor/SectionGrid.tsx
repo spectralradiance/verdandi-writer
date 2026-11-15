@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, Ey
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 
 import { suggestEdits } from '../../../shared/diff'
-import type { Layer } from '../../../shared/layers'
+import { type Layer, layerLabel } from '../../../shared/layers'
 import type { LayerNames } from '../../../shared/notes'
 import { type DocumentView, matchesFilter } from '../../../shared/views'
 import { DropdownMenu, type MenuItem } from '../menu'
@@ -92,9 +92,7 @@ const metaOf = ({ id, key, title, named, heading }: Row): RowMeta => ({ id, key,
 
 /** What a layer is called on screen: the text, or the layer's name. */
 export function kindLabel(kind: CellKind): string {
-  if (kind === 'output') return 'Text'
-  const words = kind.replace(/-/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
+  return layerLabel(kind)
 }
 
 function placeholderFor(kind: CellKind): string {

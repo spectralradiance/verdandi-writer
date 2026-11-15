@@ -8,6 +8,8 @@ import {
   joinFrontmatter, type Layer, type LayerChange, layerNameError, LAYER_KINDS, newDocumentNote, newSectionId, NOTES_LAYER, parseDocumentNote, parseSectionFile, type SectionFile, setFields,
   removeLayerBlocks, renameLayerBlocks, sectionFields, stableId, tidySectionText, uniqueName, writeDocumentNote, writeSectionFile,
 } from '../shared/layers'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+
 import { normalizeView, parseViews, type SavedView, VIEWS_FILE, writeViews } from '../shared/views'
 import { sectionMarkerLine } from '../shared/text'
 import { type BackupStore, documentNoteOf, readTextDocument, writeTextDocument } from './fileService'
@@ -48,6 +50,8 @@ interface LoadedFolder {
   /** Stands in for an mtime: changes whenever any of the document's files does. */
   token: number
   size: number
+  /** The latest mtime of the document's files. */
+  modifiedMs: number
   text: string
 }
 
@@ -68,12 +72,13 @@ async function loadFolder(folder: string): Promise<LoadedFolder> {
   const parsed = parseDocumentNote(note.text)
   const layers = parsed.layers.map((layer) => layer.name)
   const names = new Map((await readdir(folder)).map((name) => [name.toLowerCase(), name]))
+  const recovered = await recoverStale(folder, noteFile, parsed.sections, names, layers)
   const sections: LoadedSection[] = []
   const seen = new Set<string>()
   const ids = new Set<string>()
   for (const target of parsed.sections) {
     // Obsidian matches links without regard to case.
-    const actual = names.get(`${target}.md`.toLowerCase())
+    const actual = names.get(`${target}.md`.toLowerCase()) ?? recovered.get(target)
     if (!actual || target.includes('/') || target.includes('\\')) continue
     const file = path.join(folder, actual)
     if (seen.has(file.toLowerCase()) || file.toLowerCase() === noteFile.toLowerCase()) continue
@@ -102,6 +107,7 @@ async function loadFolder(folder: string): Promise<LoadedFolder> {
     sections,
     token: tokenOf(stamps.map((stamp) => `${stamp.file}:${stamp.mtime}`)),
     size: stamps.reduce((sum, stamp) => sum + stamp.size, 0),
+    modifiedMs: Math.max(...stamps.map((stamp) => stamp.mtime)),
     text: sections.map((section) => section.segment).join('\n'),
   }
 }
@@ -110,7 +116,7 @@ async function loadFolder(folder: string): Promise<LoadedFolder> {
 export async function readFolderDocument(folder: string): Promise<TextDocument> {
   const loaded = await loadFolder(folder)
   return {
-    path: folder, text: loaded.text, format: loaded.note.format, mtimeMs: loaded.token, size: loaded.size, folder: true, layers: loaded.declared,
+    path: folder, text: loaded.text, format: loaded.note.format, mtimeMs: loaded.token, size: loaded.size, folder: true, layers: loaded.declared, modifiedMs: loaded.modifiedMs,
     fields: Object.fromEntries(loaded.sections.map((section) => [section.id, sectionFields(section.parsed.yaml)])),
   }
 }
@@ -126,6 +132,87 @@ export async function readDocument(target: string, allowMissing = false): Promis
 export async function isFolderDocument(target: string): Promise<boolean> {
   const info = await stat(target).catch(() => null)
   return Boolean(info?.isDirectory() && (await documentNoteOf(target)))
+}
+
+// ---------------------------------------------------------------------------
+// Finding sections again
+
+/** Where a document folder remembers which file each section was in, by id. */
+export const SECTIONS_FILE = path.join('.verdandi', 'sections.yaml')
+
+async function rememberedFiles(folder: string): Promise<Map<string, string>> {
+  const text = await readFile(path.join(folder, SECTIONS_FILE), 'utf8').catch(() => null)
+  if (text === null) return new Map()
+  let data: unknown
+  try {
+    data = parseYaml(text)
+  } catch {
+    return new Map()
+  }
+  const files = new Map<string, string>()
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    for (const [id, base] of Object.entries(data as Record<string, unknown>)) {
+      if (typeof base === 'string') files.set(base.toLowerCase(), String(id))
+    }
+  }
+  return files
+}
+
+/**
+ * Records which file each section is in, so that a section file renamed outside
+ * Obsidian (which would have updated the embed) can be found again by its id. Only
+ * written when it changed. Best effort: a folder that can't be written still works.
+ */
+async function rememberSections(loaded: LoadedFolder): Promise<void> {
+  const file = path.join(loaded.folder, SECTIONS_FILE)
+  const ids = Object.fromEntries(loaded.sections.filter((section) => section.parsed.id === section.id).map((section) => [section.id, section.base]))
+  const text = `# The file each section was in when Verdandi last saved, by id, to find a section again if its file is renamed.\n${stringifyYaml(ids, { lineWidth: 0 })}`
+  if ((await readFile(file, 'utf8').catch(() => null)) === text) return
+  try {
+    await mkdir(path.dirname(file), { recursive: true })
+    const temporary = `${file}.${randomBytes(4).toString('hex')}.tmp`
+    await writeFile(temporary, text, 'utf8')
+    await rename(temporary, file)
+  } catch {
+    // see above
+  }
+}
+
+/**
+ * Embeds in the document note whose file is gone, matched to section files in the
+ * folder that no embed lists: by the id remembered for the embed's name, or, with
+ * one stale embed and one such file, to each other. Returns the file name for each
+ * stale embed that was found.
+ */
+async function recoverStale(
+  folder: string, noteFile: string, targets: readonly string[], names: ReadonlyMap<string, string>, layers: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  const stale = targets.filter((target) => !names.has(`${target}.md`.toLowerCase()) && !target.includes('/') && !target.includes('\\'))
+  if (stale.length === 0) return found
+  const listed = new Set(targets.map((target) => `${target}.md`.toLowerCase()))
+  const orphans: { name: string; id: string }[] = []
+  for (const [lower, name] of names) {
+    if (!lower.endsWith('.md') || listed.has(lower) || lower === path.basename(noteFile).toLowerCase()) continue
+    const text = await readFile(path.join(folder, name), 'utf8').catch(() => null)
+    const id = text === null ? null : parseSectionFile(text, layers).id
+    if (id) orphans.push({ name, id })
+  }
+  if (orphans.length === 0) return found
+  const remembered = await rememberedFiles(folder)
+  const used = new Set<string>()
+  for (const target of stale) {
+    const id = remembered.get(target.toLowerCase())
+    const orphan = id ? orphans.find((candidate) => candidate.id === id && !used.has(candidate.name)) : undefined
+    if (orphan) {
+      found.set(target, orphan.name)
+      used.add(orphan.name)
+    }
+  }
+  const left = orphans.filter((orphan) => !used.has(orphan.name))
+  const unmatched = stale.filter((target) => !found.has(target))
+  if (unmatched.length === 1 && left.length === 1) found.set(unmatched[0], left[0].name)
+  return found
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +322,7 @@ export async function writeFolderDocument(
   }
 
   const saved = await loadFolder(folder)
+  await rememberSections(saved)
   const result: WriteResult & { text?: string } = { ok: true, mtimeMs: saved.token, size: saved.size, format: saved.note.format, notice: null }
   const fresh = planned.filter((plan) => plan.section.id !== plan.id)
   if (fresh.length > 0) result.text = withIds(request.text, planned)
@@ -368,6 +456,7 @@ export async function createFolderDocument(parent: string, name: string, newId: 
     await rm(folder, { recursive: true, force: true })
     throw error
   }
+  await rememberSections(await loadFolder(folder))
   return folder
 }
 
@@ -477,6 +566,7 @@ export async function convertFileToFolder(file: string, newId: () => string = ne
     await rm(staging, { recursive: true, force: true })
     throw error
   }
+  await loadFolder(folder).then(rememberSections, () => {})
   return { folder, note: path.join(folder, `${name}.md`), original: path.join(folder, ORIGINAL_DIR, fileName) }
 }
 

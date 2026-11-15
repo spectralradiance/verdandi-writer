@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import type { ExportOptions, ExportOutcome } from '../../shared/ipc'
+import type { ExportContent, ExportOptions, ExportOutcome } from '../../shared/ipc'
+import { layerLabel } from '../../shared/layers'
 import { errorMessage } from './target'
 import { X } from 'lucide-react'
 
@@ -9,12 +10,19 @@ import { Modal } from './Modal'
 interface ExportDialogProps {
   folder: string
   title: string
+  /** A document folder's layers, or null for a one-file document (its notes alone). */
+  layers: readonly string[] | null
   /** Saves open editors first, so the export includes the latest text. */
   flush: () => Promise<boolean>
   onClose: () => void
 }
 
-export function ExportDialog({ folder, title, flush, onClose }: ExportDialogProps) {
+export function ExportDialog({ folder, title, layers, flush, onClose }: ExportDialogProps) {
+  const choices: { content: ExportContent; label: string }[] = [
+    { content: 'output', label: 'Text (the finished text)' },
+    ...(layers ?? ['notes']).map((layer) => ({ content: `layer:${layer}` as const, label: layerLabel(layer) })),
+    ...(layers && layers.length > 1 ? [{ content: 'notes' as const, label: 'Every layer' }] : []),
+  ]
   const [options, setOptions] = useState<ExportOptions>({ format: 'pdf', content: 'output', includeTitle: true })
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null)
@@ -51,8 +59,11 @@ export function ExportDialog({ folder, title, flush, onClose }: ExportDialogProp
         <div className="settings-section">
           <fieldset className="export-choice">
             <legend>Content</legend>
-            <label><input type="radio" checked={options.content === 'output'} onChange={() => setOptions({ ...options, content: 'output' })} /> Output (the finished text)</label>
-            <label><input type="radio" checked={options.content === 'notes'} onChange={() => setOptions({ ...options, content: 'notes' })} /> Notes</label>
+            {choices.map((choice) => (
+              <label key={choice.content}>
+                <input type="radio" checked={options.content === choice.content} onChange={() => setOptions({ ...options, content: choice.content })} /> {choice.label}
+              </label>
+            ))}
           </fieldset>
           <fieldset className="export-choice">
             <legend>Format</legend>
@@ -65,7 +76,7 @@ export function ExportDialog({ folder, title, flush, onClose }: ExportDialogProp
             {' '}Start with the document title
           </label>
           <p className="lexical-hint">
-            Sections are joined in order; a section without a heading continues the one before (notes exports give every section its title).
+            Sections are joined in order; a section without a heading continues the one before (a layer export gives every section its title).
             Empty sections are left out. Fonts, page size and margins are in Settings → Export.
           </p>
           {error && <p className="lexical-message status-error">{error}</p>}

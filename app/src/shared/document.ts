@@ -1,7 +1,7 @@
 // A single-file document: sections are split by headings, and each section can
 // hold notes (`::: notes` blocks, see notes.ts) alongside its output text.
 
-import { classifyLines, type LayerNames, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from './notes'
+import { classifyBlocks, classifyLines, layerLabel, type LayerNames, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from './notes'
 import { countWords, extractHeadings, extractSectionMarkers, type Heading, splitsAtMarkersOnly } from './text'
 
 /** A section without its text, for outlines. */
@@ -29,11 +29,15 @@ export interface DocSection {
   output: string
   /** The contents of its layer blocks (its notes, in a one-file document). */
   notes: string
+  /** The same per layer: each layer's blocks joined, for the layers that have any. */
+  layers: Record<string, string>
   /** Whether there is any text under the heading (besides notes). */
   hasText: boolean
   /** Words in the heading and the text, so the sections add up to the document's count. */
   outputWords: number
   notesWords: number
+  /** Words per layer, for the layers that have any. */
+  layerWords: Record<string, number>
   /** Headings inside the section, below the section level. */
   headings: Heading[]
 }
@@ -80,7 +84,7 @@ export function sectionStarts(text: string, layers?: LayerNames): { line: number
  */
 export function splitSections(text: string, layers?: LayerNames): DocSection[] {
   const lines = text.split('\n')
-  const roles = classifyLines(lines, layers)
+  const blocks = classifyBlocks(lines, layers)
   const headings = extractHeadings(text, layers)
   const level = sectionLevel(headings)
   const starts = sectionStarts(text, layers)
@@ -89,17 +93,38 @@ export function splitSections(text: string, layers?: LayerNames): DocSection[] {
   const build = (title: string | null, named: boolean, heading: boolean, headingLine: number, from: number, to: number): DocSection => {
     const output: string[] = []
     const notes: string[] = []
+    // Each layer's blocks, joined with a blank line between blocks.
+    const perLayer = new Map<string, { lines: string[]; gap: boolean }>()
     let blockGap = false
     for (let index = from; index < to; index += 1) {
-      if (roles[index] === 'output') output.push(lines[index].replace(/\r$/, ''))
-      else if (roles[index] === 'notes') {
+      const { role, layer } = blocks[index]
+      const line = lines[index].replace(/\r$/, '')
+      if (role === 'output') output.push(line)
+      else if (role === 'notes') {
         if (blockGap && notes.length > 0) notes.push('')
         blockGap = false
-        notes.push(lines[index].replace(/\r$/, ''))
-      } else if (roles[index] === 'close') blockGap = true
+        notes.push(line)
+        const own = perLayer.get(layer!) ?? { lines: [], gap: false }
+        if (own.gap && own.lines.length > 0) own.lines.push('')
+        own.gap = false
+        own.lines.push(line)
+        perLayer.set(layer!, own)
+      } else if (role === 'close') {
+        blockGap = true
+        const own = perLayer.get(layer!)
+        if (own) own.gap = true
+      }
     }
     const outputText = joinLines(output)
     const notesText = joinLines(notes)
+    const layerTexts: Record<string, string> = {}
+    const layerWords: Record<string, number> = {}
+    for (const [layer, own] of perLayer) {
+      const joined = joinLines(own.lines)
+      if (!joined) continue
+      layerTexts[layer] = joined
+      layerWords[layer] = countWords(joined)
+    }
     return {
       title,
       named,
@@ -109,9 +134,11 @@ export function splitSections(text: string, layers?: LayerNames): DocSection[] {
       endLine: to,
       output: outputText,
       notes: notesText,
+      layers: layerTexts,
       hasText: outputText.length > 0,
       outputWords: countWords(outputText) + (title === null || named ? 0 : countWords(lines[headingLine - 1])),
       notesWords: countWords(notesText),
+      layerWords,
       headings: headings.filter((heading) => heading.line > headingLine && heading.line <= to && heading.level > level),
     }
   }
@@ -139,6 +166,18 @@ export function splitWordCounts(text: string, layers?: LayerNames): { output: nu
     else if (roles[index] === 'notes') notes.push(line)
   })
   return { output: countWords(output.join('\n')), notes: countWords(notes.join('\n')) }
+}
+
+/**
+ * A section's layers as one Markdown text, for a model to read: each under a
+ * `### Label` heading when the document has more than one layer, its notes alone
+ * otherwise. Empty when no layer has anything.
+ */
+export function layerMaterial(section: Pick<DocSection, 'notes' | 'layers'>, layers?: LayerNames): string {
+  if (!layers || layers.length <= 1) return section.notes
+  return layers.filter((layer) => section.layers[layer]?.trim())
+    .map((layer) => `### ${layerLabel(layer)}\n\n${section.layers[layer]}`)
+    .join('\n\n')
 }
 
 export function hasNotes(text: string): boolean {

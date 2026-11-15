@@ -184,7 +184,7 @@ export function AiPanel({ workspace, status, onOpenSettings }: AiPanelProps) {
       return
     }
     if (!material.notes.trim()) {
-      setMessage('This section’s notes are empty, so there is nothing to draft from.')
+      setMessage('This section has no notes or other layers yet, so there is nothing to draft from.')
       return
     }
     const { document, section, notes, output, documentNotes } = material

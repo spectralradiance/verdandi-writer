@@ -386,11 +386,20 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **What keeps working unchanged:** rows, section menus, the outline, search (a document folder is indexed as one document), stats, export (`.heading` names become `#` headings), History and AI.
   - **Conversion and read-only:** one-file documents with notes blocks or section markers convert on open, with Undo. Other notes open read-only with "Make this a document", and New document makes a document folder.
 - **Done, step 4 (views), 2026-11-14:** any layer the document declares shows in the rows, and any layer can be first. The other layers sit beside it as a stack of panels, side by side or stacked. Layers are added, renamed, re-kinded and deleted from the header (rename and delete rewrite the callouts in every section file; delete asks first and snapshots History). Sections can be collapsed, hidden, filtered on their frontmatter fields, or opened on a page of their own. Named views are saved in `.verdandi/views.yaml` (`shared/views.ts`); the view in use is kept in preferences per document.
+- **Done, step 5 (everything that reads documents), 2026-11-14:**
+  - **Sections per layer:** `splitSections` gives each section's layers apart (`layers`, `layerWords`).
+  - **Stats:** the Stats dialog counts words per layer.
+  - **Export:** exports the text, any one layer, or every layer, each under a subheading. Obsidian's `![[image.png]]` embeds become images (found in `attachments/`) and `[[links]]` become their text. A document folder's images now resolve against the folder itself.
+  - **AI:** Draft output gets every layer, each under its own heading. Analyze reads the finished text without section markers. The default prompts describe layers and markers.
+  - **Search:** leaves `:::` lines and marker ids out of the index (version 1, so old indexes rebuild once) and reads a marker as its section's name, with line numbers unchanged.
+  - **Callouts from Obsidian:** a callout whose type isn't declared, such as `> [!beats]`, gets a banner offering to make it a layer, or to keep it as text.
+  - **Renamed files:** `.verdandi/sections.yaml` remembers which file each section id was in. When a section file is renamed outside Obsidian, its stale embed finds the file again by that id, or, with one stale embed and one unlisted file, they are matched to each other; the next save writes the new name into the note. The folder watcher already counted any change in a document folder as a change to the document.
+  - **Fixed:** with a section marker removed, a section ending in a layer block no longer runs into the next section's first paragraph in exports.
 - **Next:**
   - **Layer kinds:** a gallery layer that shows `![[image]]` embeds as a grid, with images added to `attachments/`, and a list layer whose outline across the document can be dragged to reorder sections. Today every kind is edited as Markdown.
   - **Split from any layer**, as §3b describes (today a split starts from the text), and fields edited in the app rather than only in Obsidian.
-  - **Export and stats per layer:** a notes export and the "in notes" count take every layer other than the text together.
-  - **Section files added or renamed in Obsidian:** a stale embed is dropped from the order the next time Verdandi saves. Recovering it by its `id` is not built yet.
+  - **The Urdr import** (Phase 6) is not built yet. When it is, highlights land in the section's notes layer as callout content, which `splitSections` already reads per layer.
+  - **The status bar's "in notes" count** and the daily totals still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
 
 1. **Model:**

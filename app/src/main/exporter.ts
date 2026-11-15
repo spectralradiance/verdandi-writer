@@ -6,9 +6,8 @@ import { marked } from 'marked'
 
 import { demoteHeadings, splitSections } from '../shared/document'
 import type { ExportOptions } from '../shared/ipc'
-import { markersToHeadings } from '../shared/layers'
-import { type LayerNames, stripNotes } from '../shared/notes'
-import { stripSectionMarkers } from '../shared/text'
+import { finishedText, layerLabel } from '../shared/layers'
+import type { LayerNames } from '../shared/notes'
 import { DEFAULT_PREFERENCES, type ExportPreferences } from '../shared/preferences'
 
 export interface ExportedMarkdown {
@@ -18,30 +17,67 @@ export interface ExportedMarkdown {
   skipped: string[]
 }
 
+const IMAGE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp)$/i
+
 /**
- * A document as Markdown for export. The output is the text without its notes
- * blocks; the notes export gives each section's notes under the section's heading.
- * With a title, the title is the only top-level heading and the rest move down one.
+ * Obsidian's links as plain Markdown, which HTML, PDF and other Markdown readers
+ * understand: an image embed `![[map.png|Map]]` becomes an image (found by
+ * `resolveImage`, relative to the export's base folder), and a link `[[Page|shown]]`
+ * becomes its text. Code is left alone.
+ */
+export function plainLinks(markdown: string, resolveImage: (name: string) => string = (name) => name): string {
+  let fence: string | null = null
+  return markdown.split('\n').map((line) => {
+    const opened = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
+    if (opened) {
+      if (fence === null) fence = opened[1][0]
+      else if (opened[1][0] === fence) fence = null
+      return line
+    }
+    if (fence !== null) return line
+    return line.split(/(`[^`]*`)/).map((part, index) => (index % 2 === 1 ? part : part
+      .replace(/!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (whole, target: string, alt?: string) => {
+        const name = target.trim()
+        if (!IMAGE.test(name)) return whole
+        const size = alt !== undefined && /^\d+(?:x\d+)?$/.test(alt.trim())
+        const shown = alt !== undefined && !size ? alt.trim() : name.replace(/\.[^.]+$/, '')
+        return `![${shown}](<${resolveImage(name)}>)`
+      })
+      .replace(/(?<!!)\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_whole, target: string, shown?: string) => (shown ?? target.replace(/#.*$/, '')).trim()))).join('')
+  }).join('\n')
+}
+
+/**
+ * A document as Markdown for export. The output is the text without its layer
+ * blocks. A layer export gives each section's layer under the section's heading; the
+ * notes export gives all of a section's layers, each under its own subheading when
+ * there is more than one. With a title, the title is the only top-level heading and
+ * the rest move down one.
  */
 export function exportMarkdown(text: string, title: string, options: Pick<ExportOptions, 'content' | 'includeTitle'>, layers?: LayerNames): ExportedMarkdown {
   const level = options.includeTitle ? 2 : 1
   const parts: string[] = options.includeTitle ? [`# ${title}`] : []
   const sections = splitSections(text, layers)
   if (options.content === 'output') {
-    const output = stripSectionMarkers(markersToHeadings(stripNotes(text, layers), layers), layers).trim()
+    const output = finishedText(text, layers).trim()
     if (output) parts.push(options.includeTitle ? demoteHeadings(output, 2) : output)
     return { markdown: `${parts.join('\n\n')}\n`, sections: sections.filter((section) => section.output).length, skipped: [] }
   }
+  const only = options.content.startsWith('layer:') ? options.content.slice('layer:'.length) : null
+  const order = layers ? [...layers] : ['notes']
   const skipped: string[] = []
   let count = 0
   for (const section of sections) {
     const name = section.title ?? 'Document notes'
-    if (!section.notes.trim()) {
+    const present = (only ? [only] : order).filter((layer) => section.layers[layer]?.trim())
+    if (present.length === 0) {
       if (section.title !== null) skipped.push(name)
       continue
     }
     count += 1
-    parts.push(`${'#'.repeat(level)} ${name}`, demoteHeadings(section.notes, level + 1))
+    parts.push(`${'#'.repeat(level)} ${name}`)
+    if (present.length === 1) parts.push(demoteHeadings(section.layers[present[0]], level + 1))
+    else for (const layer of present) parts.push(`${'#'.repeat(level + 1)} ${layerLabel(layer)}`, demoteHeadings(section.layers[layer], level + 2))
   }
   return { markdown: `${parts.join('\n\n')}\n`, sections: count, skipped }
 }

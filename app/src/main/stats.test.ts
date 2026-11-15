@@ -41,10 +41,10 @@ describe('WritingStats', () => {
     const stats = new WritingStats(await statsFile())
     stats.setGoal(document, 3000)
     const result = await stats.documentStats(document)
-    expect(result).toMatchObject({ notesWords: 5, outputWords: 4, goal: 3000 })
+    expect(result).toMatchObject({ notesWords: 5, layers: ['notes'], layerWords: { notes: 5 }, outputWords: 4, goal: 3000 })
     expect(result.sections).toEqual([
-      { title: 'first', line: 1, hasText: true, notesWords: 4, outputWords: 3 },
-      { title: 'second', line: 9, hasText: false, notesWords: 1, outputWords: 1 },
+      { title: 'first', line: 1, hasText: true, notesWords: 4, layerWords: { notes: 4 }, outputWords: 3 },
+      { title: 'second', line: 9, hasText: false, notesWords: 1, layerWords: { notes: 1 }, outputWords: 1 },
     ])
     expect(result.modified).not.toBeNull()
     stats.setGoal(document, null)
