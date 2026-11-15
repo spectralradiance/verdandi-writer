@@ -100,7 +100,7 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
       <IconButton
         icon={Columns2}
         label={sideShown ? 'Hide the other layers' : 'Show the other layers'}
-        title={`${sideShown ? 'Hide' : 'Show'} the other layers beside every section. Each section can be shown or hidden on its own too; Ctrl+Alt+N moves between a section’s layers.`}
+        title={`${sideShown ? 'Hide' : 'Show'} the other layers beside every section. Ctrl+Alt+N moves between a section’s layers.`}
         aria-pressed={sideShown}
         onClick={toggleSide}
       />

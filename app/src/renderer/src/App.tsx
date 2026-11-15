@@ -544,7 +544,7 @@ export function App() {
             focusMode={focusMode}
             headerActions={(
               <>
-                <IconButton icon={ChartColumn} label="Statistics" title="Word counts per section, goal and daily progress" onClick={() => setShowStats(true)} />
+                <IconButton icon={ChartColumn} label="Statistics" title="Word counts, goal and daily progress; vocabulary and grammar per section over time" onClick={() => setShowStats(true)} />
                 <ModeToggles {...mode} />
               </>
             )}

@@ -141,3 +141,16 @@ def test_watch_parent_fires_when_the_parent_exits() -> None:
     assert not fired.is_set()
     child.wait()
     assert fired.wait(5)
+
+
+def test_local_model_needs_its_libraries(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from verdandi_ai.providers import local_hf
+
+    ready = {"state": "ready", "installed": True, "cuda_available": True}
+    provider = local_hf.LocalHFProvider(lambda: ready)
+    monkeypatch.setattr(local_hf, "missing_libraries", lambda: ["transformers", "accelerate"])
+    health = provider.health()
+    assert health.configured is False
+    assert "transformers, accelerate not installed" in (health.detail or "")
+    monkeypatch.setattr(local_hf, "missing_libraries", lambda: [])
+    assert provider.health().configured is True

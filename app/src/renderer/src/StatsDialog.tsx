@@ -5,6 +5,7 @@ import { errorMessage } from './target'
 import { X } from 'lucide-react'
 
 import { Modal } from './Modal'
+import { StylePanel } from './StylePanel'
 import { kindLabel } from './editor/SectionGrid'
 
 interface StatsDialogProps {
@@ -49,6 +50,7 @@ export function StatsDialog({ path, title, onOpenSection, onClose }: StatsDialog
   const [days, setDays] = useState<DailyWords[]>([])
   const [goal, setGoal] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'words' | 'style'>('words')
 
   useEffect(() => {
     window.verdandi.stats.document(path).then((result) => {
@@ -74,9 +76,17 @@ export function StatsDialog({ path, title, onOpenSection, onClose }: StatsDialog
         <h2>Statistics · {title}</h2>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X size={14} aria-hidden="true" /></button>
       </header>
+      <nav className="lexical-tabs" role="tablist">
+        {(['words', 'style'] as const).map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+            {{ words: 'Words', style: 'Vocabulary and grammar' }[id]}
+          </button>
+        ))}
+      </nav>
       <div className="settings-body">
-        {error && <p className="lexical-message status-error">{error}</p>}
-        {stats && (
+        {tab === 'style' && <StylePanel path={path} onOpenSection={onOpenSection} />}
+        {tab === 'words' && error && <p className="lexical-message status-error">{error}</p>}
+        {tab === 'words' && stats && (
           <div className="settings-section">
             <div className="stats-summary">
               <div><strong>{stats.outputWords.toLocaleString()}</strong><span>output words</span></div>

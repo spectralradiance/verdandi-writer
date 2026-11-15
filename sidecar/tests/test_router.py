@@ -184,3 +184,18 @@ def test_tool_runs_skip_providers_without_tool_support() -> None:
     request = GenerateRequest(system="", messages=(ChatMessage("user", "hi"),), tools=(ToolSpec("t", "a tool", {"type": "object"}),))
     events = list(run("synthesize", request, config("local"), registry))
     assert events[-1]["kind"] == "unavailable" and "tool support" in events[-1]["message"]
+
+
+class CrashingProvider(FakeProvider):
+    """Fails with something other than a ProviderError, like a library that isn't installed."""
+
+    def stream(self, request: GenerateRequest, profile: Profile) -> Iterator[StreamEvent]:
+        self.calls.append(profile)
+        raise ModuleNotFoundError("No module named 'transformers'")
+        yield text_event("never")  # pragma: no cover
+
+
+def test_an_unexpected_failure_ends_the_run_with_an_error() -> None:
+    events = list(run("synthesize", REQUEST, config(), providers(cloud_a=CrashingProvider("cloud_a"))))
+    assert types_of(events) == ["start", "error"]
+    assert "No module named 'transformers'" in events[-1]["message"]

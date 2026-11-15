@@ -1,0 +1,26 @@
+# Saved views for this document.
+views:
+- name: Outline
+  primary: outline
+  shown: []
+  layout: side
+  collapsed: []
+  hidden: []
+  filter: {}
+  page: null
+- name: Drafting act one
+  primary: output
+  shown: [notes]
+  layout: side
+  collapsed: []
+  hidden: []
+  filter: {tags: act-1}
+  page: null
+- name: Still ideas
+  primary: outline
+  shown: [notes]
+  layout: side
+  collapsed: []
+  hidden: []
+  filter: {status: idea}
+  page: null

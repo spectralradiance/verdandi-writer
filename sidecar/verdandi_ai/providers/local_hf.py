@@ -8,6 +8,7 @@ VRAM is returned. The lock is the "GPU lane": local jobs run one at a time.
 from __future__ import annotations
 
 import gc
+import importlib.util
 import threading
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -17,6 +18,23 @@ from ..ai_types import GenerateRequest, Profile, ProviderError, ProviderHealth, 
 DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 IDLE_UNLOAD_SECONDS = 600.0
 LANE_WAIT_SECONDS = 120.0
+# What loading a model needs besides PyTorch (requirements-local.txt). bitsandbytes is
+# only needed for 4-bit; without it a model loads in float16, if it fits.
+REQUIRED_LIBRARIES = ("transformers", "accelerate")
+
+
+def missing_libraries() -> list[str]:
+    return [name for name in REQUIRED_LIBRARIES if importlib.util.find_spec(name) is None]
+
+
+def is_downloaded(name: str) -> bool:
+    """Whether the model's files are in the Hugging Face cache (a local folder counts)."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        return isinstance(try_to_load_from_cache(name, "config.json"), str)
+    except Exception:
+        return True  # can't tell; say nothing about a download
 
 
 class LocalHFProvider:
@@ -42,6 +60,9 @@ class LocalHFProvider:
             return ProviderHealth(False, "PyTorch not installed")
         if not status.get("cuda_available"):
             return ProviderHealth(False, "CUDA unavailable")
+        missing = missing_libraries()
+        if missing:
+            return ProviderHealth(False, f"{', '.join(missing)} not installed (reinstall the local-model libraries in AI settings)")
         return ProviderHealth(True)
 
     def loaded_models(self) -> list[str]:
@@ -60,7 +81,11 @@ class LocalHFProvider:
         try:
             if self._idle_timer:
                 self._idle_timer.cancel()
-            model, tokenizer = self._ensure_loaded(profile.model or DEFAULT_MODEL, profile.params)
+            name = profile.model or DEFAULT_MODEL
+            if not (self._loaded and self._loaded[0] == name):
+                first = "" if is_downloaded(name) else " It isn't on this computer yet, so it is downloaded first (several GB); that can take a while."
+                yield {"type": "notice", "message": f"Loading {name} onto the GPU…{first}"}
+            model, tokenizer = self._ensure_loaded(name, profile.params)
             yield from self._generate(model, tokenizer, request)
         finally:
             self._schedule_unload()
@@ -76,7 +101,7 @@ class LocalHFProvider:
         from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
         attempts: list[tuple[str, dict[str, Any]]] = []
-        if params.get("quant", "4bit") == "4bit":
+        if params.get("quant", "4bit") == "4bit" and importlib.util.find_spec("bitsandbytes") is not None:
             attempts.append(("4-bit NF4", {"quantization_config": BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
@@ -129,7 +154,16 @@ class LocalHFProvider:
         else:
             options.update(do_sample=False)
 
-        worker = threading.Thread(target=model.generate, kwargs=options, name="local-generate", daemon=True)
+        failures: list[BaseException] = []
+
+        def work() -> None:
+            try:
+                model.generate(**options)
+            except BaseException as error:  # reported below, not lost in the thread
+                failures.append(error)
+                streamer.end()
+
+        worker = threading.Thread(target=work, name="local-generate", daemon=True)
         worker.start()
         try:
             for piece in streamer:
@@ -139,6 +173,8 @@ class LocalHFProvider:
             # Runs on completion and when the client disconnects (generator closed).
             cancelled.set()
             worker.join()
+        if failures:
+            raise ProviderError("unavailable", f"The local model failed: {failures[0]}")
         # Not reached when the client disconnects: closing the generator stops at the finally above.
         yield usage_event(int(inputs["input_ids"].shape[1]), None)
         yield done_event("end_turn")

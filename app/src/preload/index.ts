@@ -103,6 +103,7 @@ const api: VerdandiApi = {
     document: (folder) => ipcRenderer.invoke(IPC.statsDocument, folder),
     setGoal: (folder, words) => ipcRenderer.invoke(IPC.statsSetGoal, folder, words),
     daily: (days) => ipcRenderer.invoke(IPC.statsDaily, days),
+    style: (file) => ipcRenderer.invoke(IPC.statsStyle, file),
     onChanged: (listener) => {
       const handler = (_event: IpcRendererEvent, days: DailyWords[]): void => listener(days)
       ipcRenderer.on(IPC.statsChanged, handler)
