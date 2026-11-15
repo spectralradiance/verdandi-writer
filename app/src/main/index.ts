@@ -29,6 +29,7 @@ import { SidecarManager } from './sidecar'
 import { resolveSidecarPaths } from './sidecarUtil'
 import { buildWiktionary } from './wiktionaryBuilder'
 import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
+import { StyleHistory } from './styleHistory'
 import { WorkspaceWatcher } from './watcher'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
@@ -52,6 +53,11 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
+// scripts/dev.ps1 -Samples opens a copy of samples/ as a workspace root.
+if (process.env.VERDANDI_ADD_ROOT) {
+  const roots = addRoot(settings.get().workspaceRoots, process.env.VERDANDI_ADD_ROOT, process.platform)
+  if (roots !== settings.get().workspaceRoots) settings.update({ workspaceRoots: roots })
+}
 const secrets = new SecretStore(join(app.getPath('userData'), 'keys.json'), {
   available: () => safeStorage.isEncryptionAvailable(),
   encrypt: (plain) => safeStorage.encryptString(plain),
@@ -64,6 +70,7 @@ const sidecar = new SidecarManager(resolveSidecarPaths(app.getAppPath(), process
 const prompts = new PromptStore(join(app.getPath('userData'), 'prompts'))
 const snapshots = new SnapshotStore(join(app.getPath('userData'), 'snapshots'))
 const writingStats = new WritingStats(join(app.getPath('userData'), 'stats.json'))
+const styleHistory = new StyleHistory(join(app.getPath('userData'), 'style-history.json'))
 const ai = new AiBridge({
   connection: () => sidecar.connection(),
   prompts,
@@ -314,6 +321,11 @@ function registerIpc(): void {
     if (result.ok) {
       void snapshots.afterSave(target, request.text).catch(() => {})
       writingStats.recordSave(before, request.text, layerNamesOf(previous))
+      try {
+        styleHistory.recordSave(target, before, request.text, layerNamesOf(previous))
+      } catch {
+        // the history is a convenience; a save never fails because of it
+      }
       mainWindow?.webContents.send(IPC.statsChanged, writingStats.daily())
     }
     return result
@@ -323,6 +335,11 @@ function registerIpc(): void {
     const target = guard.resolve(folder)
     writingStats.setGoal(target, typeof words === 'number' && Number.isFinite(words) ? words : null)
     return writingStats.documentStats(target)
+  })
+  ipcMain.handle(IPC.statsStyle, async (_event, file: unknown) => {
+    const target = guard.resolve(file)
+    const document = await readDocument(target, true)
+    return styleHistory.report(target, document.text, layerNamesOf(document))
   })
   ipcMain.handle(IPC.statsDaily, (_event, days: unknown) => writingStats.daily(typeof days === 'number' ? Math.min(Math.max(days, 1), 366) : 14))
   ipcMain.handle(IPC.historyList, (_event, file: unknown) => snapshots.list(guard.resolve(file)))

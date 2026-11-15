@@ -1618,7 +1618,7 @@ button.primary {
 /* Statistics */
 
 .stats-dialog {
-  width: min(760px, 100%);
+  width: min(880px, 100%);
 }
 
 .stats-summary {
@@ -1685,6 +1685,50 @@ button.primary {
 .stats-heading {
   margin: 8px 0 0;
   font-size: 13px;
+}
+
+.style-overview tr.selected td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.style-overview td:not(:first-child),
+.style-overview th:not(:first-child),
+.style-detail td:nth-child(2) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.style-detail td:first-child {
+  cursor: help;
+}
+
+.style-spark {
+  display: block;
+  width: 120px;
+  height: 24px;
+  overflow: visible;
+}
+
+.style-spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.style-spark circle {
+  fill: var(--accent);
+}
+
+.style-change {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.style-open {
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: normal;
 }
 
 .daily-chart {
@@ -2467,26 +2511,6 @@ body.resizing {
   font-size: 12px;
 }
 
-.cell-hide,
-.section-show {
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms;
-}
-
-.section-row:hover .cell-hide,
-.section-row:hover .section-show,
-.cell-hide:focus-visible,
-.section-show:focus-visible {
-  opacity: 1;
-}
-
-.section-show {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-}
-
 .section-resize {
   position: absolute;
   right: 0;
@@ -2549,8 +2573,6 @@ body.resizing {
     grid-row: auto;
   }
 
-  .cell-hide,
-  .section-show,
   .section-menu-button {
     opacity: 1;
   }

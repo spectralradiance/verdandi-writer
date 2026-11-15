@@ -170,6 +170,7 @@ export interface LexiconEntry {
 }
 
 import type { FieldChange, Layer, LayerChange } from './layers'
+import type { StyleMetrics, StylePoint } from './analysis'
 import type { SavedView } from './views'
 import type { AiConfig, AiEvent, AiMessage, AiRunRequest, AiSettingsState, SecretName } from './ai'
 import type { Preferences } from './preferences'
@@ -202,6 +203,24 @@ export interface SectionStats {
   /** Words in each layer that has any. */
   layerWords: Record<string, number>
   outputWords: number
+}
+
+/** One section's vocabulary and grammar measures now, and its history (one point per day). */
+export interface SectionStyle {
+  /** Its id in a document folder, else `title:` and its title. */
+  key: string
+  title: string
+  /** 1-based line its heading or marker is on. */
+  line: number
+  /** Long enough to measure (short texts give numbers that mean little). */
+  measured: boolean
+  metrics: StyleMetrics
+  history: StylePoint[]
+}
+
+export interface StyleReport {
+  sections: SectionStyle[]
+  document: SectionStyle
 }
 
 export interface DocumentStats {
@@ -361,6 +380,8 @@ export interface VerdandiApi {
     document(file: string): Promise<DocumentStats>
     setGoal(file: string, words: number | null): Promise<DocumentStats>
     daily(days?: number): Promise<DailyWords[]>
+    /** Vocabulary and grammar measures per section, with their history. */
+    style(file: string): Promise<StyleReport>
     /** Fires after each save that changed the word count, with the last 14 days. */
     onChanged(listener: (days: DailyWords[]) => void): () => void
   }
@@ -441,6 +462,7 @@ export const IPC = {
   statsDocument: 'stats:document',
   statsSetGoal: 'stats:set-goal',
   statsDaily: 'stats:daily',
+  statsStyle: 'stats:style',
   statsChanged: 'stats:changed',
   historyList: 'history:list',
   historyRead: 'history:read',

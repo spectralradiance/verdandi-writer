@@ -103,5 +103,8 @@ def run(
                 return
             problems.append(f"{profile.id}: {error.message}")
             yield {"type": "notice", "message": f"{provider.label} failed ({error.kind}); trying the next profile."}
+        except Exception as error:  # a bug or a missing library: end the run with an error, never silently
+            yield {"type": "error", "kind": "unavailable", "message": f"{provider.label} failed: {type(error).__name__}: {error}", "partial": streamed_text}
+            return
 
     yield {"type": "error", "kind": "unavailable", "message": "No provider could run this. " + "; ".join(problems)}

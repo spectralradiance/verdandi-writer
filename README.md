@@ -31,7 +31,19 @@ API keys are set in the app under **AI → ⚙ AI settings → Keys** (stored en
 
 ## Samples
 
-`samples/` holds example documents: *The Night Sky* (four sections with notes; one has notes only), *Winter Notebook* and *Field Journal*. Add the folder with **+** in the sidebar and try the Text and Notes views.
+`samples/` is an example workspace (its *Start here* note describes it):
+
+- **Salt and Signal**, a novel in progress as a document folder: twelve chapters with text and four layers (notes, an outline, research and a gallery of images), fields (`status`, `pov`, `tags`) and three saved views.
+- **Tidelines**, a cycle of poems with notes.
+- **Essays**, *The Night Sky*, *Winter Notebook* and *Field Journal*: one-file documents with `::: notes` blocks, which become document folders when opened.
+- **Research**: ordinary Obsidian notes with links, which open read-only.
+
+Opening the samples changes them (one-file documents convert, edits save), so run the app on a copy:
+
+```powershell
+.\scripts\dev.ps1 -Samples        # copies samples\ to %LOCALAPPDATA%\Verdandi Writer samples once, and opens it
+.\scripts\dev.ps1 -ResetSamples   # the same, from a fresh copy
+```
 
 ## Documents
 
@@ -114,7 +126,7 @@ Set up providers under **⚙ AI settings**:
 - **Routing** — the order each task tries models in. **Local / Hybrid / Cloud** filters that list; unavailable models are skipped, and a model that fails before writing anything falls back to the next.
 - **Prompts** — each task's prompt is an editable Markdown file. In `chat.md` the part above `=== user ===` is the system prompt (with `{{document}}`, `{{section}}` and `{{context}}`), and `{{message}}` is the message you type; earlier turns are sent before it. `agent.md` works the same way for agent mode, but keep its system part free of placeholders: it is resent unchanged with every step.
 
-The local model needs PyTorch and the transformers stack: run `.\scripts\setup-sidecar.ps1` without `-NoTorch`. The first local run downloads the model (Qwen 2.5 7B by default, several GB) and needs an NVIDIA GPU; it loads in 4-bit and unloads after 10 idle minutes.
+The local model needs PyTorch and the transformers stack: run `.\scripts\setup-sidecar.ps1` without `-NoTorch`. The first local run downloads the model (Qwen 2.5 7B by default, several GB) and needs an NVIDIA GPU; it loads in 4-bit and unloads after 10 idle minutes. While it loads, the chat says so. If transformers or accelerate are missing, the local model shows as unavailable (with what's missing) rather than accepting a request it can't run.
 
 Every run is logged (task, model, token usage, input hash, output) to `%APPDATA%\Verdandi Writer\ai-history\<month>.jsonl`.
 
@@ -124,6 +136,7 @@ Every run is logged (task, model, token usage, input hash, output) to `%APPDATA%
 - **Export** (Settings → Export, Ctrl+,) writes the open document's text without its notes, or one layer (such as only the notes), or every layer, as PDF, HTML or Markdown. Obsidian's `![[image.png]]` embeds become images (looked for in the document's `attachments/` folder) and `[[links]]` become plain text.
 - **History** (⟲ on any editor) lists earlier versions of that file — saved automatically at most every 10 minutes while you edit, plus snapshots you take and a "Before AI" version whenever the AI suggests changes — with a diff against the current text and Restore. Versions are kept in `%APPDATA%\Verdandi Writer\snapshots`, never in your folders.
 - **Stats** (chart button in the document header) shows word counts for the text and each layer, per section, a word goal with progress, and words written per day; today's net count is in the status bar.
+- **Vocabulary and grammar** (a tab in Stats) measures each section's text and the whole document: vocabulary variety (the share of different words in every run of 50, so it doesn't fall as a text grows), different words, word length, long words, lexical density, sentence length and rhythm, passive voice, -ly adverbs, filler words, questions, dialogue and reading ease, plus the most repeated words. Each day a save changes a section, its measures are recorded (in `style-history.json` in the app's data folder), and each measure shows a trend line and its change since the first day recorded. Passive voice and adverbs are estimates from word shapes.
 
 ## Editing safety
 

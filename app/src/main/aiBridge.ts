@@ -101,6 +101,7 @@ export class AiBridge {
       }
       const decoder = new TextDecoder()
       let buffer = ''
+      let ended = false
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
         const parsed = parseSse(buffer + decoder.decode(chunk, { stream: true }))
         buffer = parsed.rest
@@ -110,8 +111,14 @@ export class AiBridge {
           if (event.type === 'usage') record.usage = { input: event.input_tokens, output: event.output_tokens }
           if (event.type === 'done') record.stopReason = event.stop_reason
           if (event.type === 'error') record.error = `${event.kind}: ${event.message}`
+          if (event.type === 'done' || event.type === 'error') ended = true
           emit(event)
         }
+      }
+      // The server always ends a run with done or error; a stream cut short means it failed.
+      if (!ended && !signal.aborted) {
+        record.error = 'stream ended early'
+        emit({ type: 'error', kind: 'unavailable', message: 'The AI server stopped without finishing. Its log (AI server, in Settings) says why.' })
       }
     } catch (error) {
       if (signal.aborted) {

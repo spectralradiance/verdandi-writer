@@ -403,8 +403,13 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Split from the text** moves the paragraphs from the cursor (or the selection) with their anchored blocks, as before; the blocks of layers that aren't anchored (an outline) now stay with the section that was split, so the new section, and the "(continued)" one, start with those layers blank (`splitSection`'s `stay`).
   - **Split from another layer** (`splitFromLayer`): in that layer's panel, Ctrl+Alt+S or **New section from here in the …** takes the lines from the cursor down (or the selection) out of the section's blocks of that layer (a block left empty goes) and puts them in a new section after it, with blank text. Gallery layers don't split this way; that waits for **Move to section…**.
   - **Fields…** in a section's menu edits its frontmatter (`setSectionFields`): values are read as YAML reads them (`[act-1, act-2]` is a list), comments and field order are kept, and `id`, `title` and `heading` stay Verdandi's. The document is saved first and the editor isn't reloaded; the write checks the document's token, so a change made outside meanwhile is not written over.
+- **Done, making it usable, 2026-11-14:**
+  - **Side panels** show or hide for the whole view only; the per-section show and hide buttons are gone.
+  - **AI chat with the local model** no longer hangs on "Working…": the local provider reports missing libraries (transformers, accelerate) as unavailable, says when it is loading or downloading the model, and reports a failure in its generate thread; the router ends a run with an error on any unexpected exception; and the app ends a run whose stream stops without "done" or "error".
+  - **Vocabulary and grammar per section, over time** (`shared/analysis.ts`, `main/styleHistory.ts`, the Stats dialog's second tab): one point per section per day, recorded when a save changes its text.
+  - **Samples:** a larger example workspace (a novel with every kind of layer, poems, essays, research notes), opened from a copy by `scripts/dev.ps1 -Samples`. `main/samples.test.ts` checks it loads.
 - **Next:**
-  - **The Urdr import** (Phase 6) is not built yet. When it is, highlights land in the section's notes layer as callout content, which `splitSections` already reads per layer.
+  - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The status bar's "in notes" count** and the daily totals still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
 

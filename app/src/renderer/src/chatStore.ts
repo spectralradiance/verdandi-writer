@@ -15,6 +15,8 @@ export interface ChatTurn {
   parts: ChatPart[]
   /** Assistant turns: which model answered. */
   provenance?: string
+  /** What the server says it is doing, such as loading the model, until text arrives. */
+  notice?: string
   error?: string | null
   status?: 'running' | 'done' | 'error' | 'cancelled'
   /** User turns: what was attached as context, for the bubble's caption. */
@@ -131,6 +133,9 @@ async function step(request: AiRunRequest, started: number): Promise<StepResult>
           ...turn,
           provenance: turn.provenance ?? `${event.provider_label} · ${event.model || 'default model'}${event.fallback ? ' · fallback' : ''}`,
         }))
+        return
+      case 'notice':
+        updateLast((turn) => ({ ...turn, notice: event.message }))
         return
       case 'text':
         result.text += event.text

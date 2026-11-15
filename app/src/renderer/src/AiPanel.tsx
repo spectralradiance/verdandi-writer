@@ -429,7 +429,7 @@ function AiChat({ workspace, profileId, top }: { workspace: AiWorkspace; profile
                 {turn.parts.map((part, partIndex) => part.type === 'text'
                   ? <div key={partIndex} className="ai-text">{part.text}</div>
                   : <div key={partIndex} className={`ai-chat-tool${part.isError ? ' status-error' : ''}`}>↳ {part.summary}</div>)}
-                {turn.status === 'running' && turn.provenance && turn.parts.at(-1)?.type !== 'text' && <span className="ai-chat-meta">Working…</span>}
+                {turn.status === 'running' && turn.provenance && turn.parts.at(-1)?.type !== 'text' && <span className="ai-chat-meta">{turn.notice ?? 'Working…'}</span>}
                 {turn.status === 'error' && turn.error && <p className="lexical-message status-error">{turn.error}</p>}
               </>
             )}
