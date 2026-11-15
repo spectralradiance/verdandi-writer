@@ -418,6 +418,12 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Arrange view…** (the Layers menu, or the bar's button) draws the columns at their widths: layers are dragged between them or moved with their menus, and a column's mode and width are set there. A layer in no column doesn't show in the rows; a section's own page still shows every layer.
   - **The bar** has each column's tabs, and dragging the line between two columns sets their widths. Its hide button puts the side columns away and brings them back as they were.
   - **Narrow windows** fold the later columns into tabs in the last one kept, when a column would be under 340px; below 720px everything goes under the first column, as before.
+- **Done, polish, 2026-11-15:**
+  - **The bar's tabs** are one tab stop per column: arrow keys, Home and End move between a column's tabs and choose them.
+  - **Ctrl+Alt+N** goes through every column's layers and skips galleries, which have no text for the cursor.
+  - **Arrange view** gives the first column a width slider too, and its columns wrap in a narrow window.
+  - **Local model downloads:** progress counts the files where Windows keeps them without links (it read 0% for a model already on disk), says it is checking when the model is all there, and leaves out partial files a stopped download abandoned; once the model is complete, those are removed. The 7B default was checked end to end: loaded and answered in 24 s.
+  - **README:** choosing a local model, with download sizes and GPU memory, and how the first download behaves.
 - **Next:**
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.

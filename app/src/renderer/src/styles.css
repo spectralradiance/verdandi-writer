@@ -2877,6 +2877,7 @@ button.section-bar-title:hover {
 
 .arrange-columns {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: stretch;
   margin: 12px 0 16px;
@@ -2895,7 +2896,7 @@ button.section-bar-title:hover {
 }
 
 .arrange-new {
-  flex: 0 0 170px;
+  flex: 0 1 170px;
   border-style: dashed;
   background: none;
 }
@@ -3007,4 +3008,20 @@ button.section-bar-title:hover {
 
 .arrange-footer .arrange-spacer {
   flex: 1;
+}
+
+.arrange-footer {
+  flex-wrap: wrap;
+}
+
+/* A narrow window: the columns one under another, at full width. */
+@media (max-width: 640px) {
+  .arrange-column {
+    flex-basis: 100%;
+  }
+
+  .arrange-layout {
+    flex-direction: column;
+    gap: 6px;
+  }
 }

@@ -164,6 +164,11 @@ export function ArrangeViewDialog({ layers, view, onApply, onSaveAs, onClose }: 
               <h3>Column 1</h3>
               <span className="lexical-hint">{share(draft.primaryWidth, total)}</span>
             </header>
+            <label className="arrange-width">
+              Width
+              <input type="range" min={0.25} max={4} step={0.05} value={draft.primaryWidth}
+                onChange={(event) => setDraft((current) => ({ ...current, primaryWidth: Number(event.target.value) }))} />
+            </label>
             <DropList label="First in each row" onDrop={(kind) => move(kind, { at: 'primary' })}>
               <Chip kind={draft.primary} menu={menuFor(draft.primary)} primary />
             </DropList>

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -181,3 +183,28 @@ def test_a_slow_job_sends_progress_and_is_shared(monkeypatch) -> None:  # type: 
         list(provider._wait(failed, lambda: "loading"))
     # A finished job is replaced by a new one next time.
     assert provider._job("load", "m", lambda _job: None) is not failed
+
+
+def test_partials_left_by_a_stopped_download_are_not_counted_and_are_cleared(tmp_path, monkeypatch):
+    from huggingface_hub import constants
+
+    from verdandi_ai.providers import local_hf
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path))
+    blobs = tmp_path / "models--org--model" / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / "done").write_bytes(b"x" * 100)
+    (blobs / "old.a1.incomplete").write_bytes(b"x" * 40)
+    (blobs / "new.b2.incomplete").write_bytes(b"x" * 7)
+    now = time.time()
+    old = now - local_hf.STALE_SECONDS - 60
+    os.utime(blobs / "old.a1.incomplete", (old, old))
+
+    # Where Windows can't make links, finished files sit in the snapshot folder.
+    snapshot = tmp_path / "models--org--model" / "snapshots" / "abc"
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_bytes(b"x" * 3)
+    # Progress counts finished files and the partial being written, not the abandoned one.
+    assert local_hf.downloaded_bytes("org/model", now) == 110
+    assert local_hf.clear_stale_partials("org/model", now) == 40
+    assert sorted(path.name for path in blobs.iterdir()) == ["done", "new.b2.incomplete"]
