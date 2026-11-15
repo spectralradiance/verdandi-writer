@@ -14,7 +14,11 @@ export type ViewLayout = 'side' | 'stacked'
 export interface DocumentView {
   /** The layer each row starts with. */
   primary: ViewKind
-  /** The layers shown beside (or under) it, in order. Empty hides the side. */
+  /**
+   * The layer shown beside (or under) it: one at a time, chosen from the tabs over
+   * the rows. Empty hides the side. (A list, as views saved before the tabs kept
+   * several; only the first is used.)
+   */
   shown: ViewKind[]
   layout: ViewLayout
   /** One section on a page of its own (its id, or its title in a one-file document), or null for all of them. */
@@ -50,7 +54,7 @@ export function normalizeView(value: unknown, layers: readonly string[]): Docume
   const kinds = ['output', ...layers]
   const primary = typeof raw.primary === 'string' && kinds.includes(raw.primary) ? raw.primary : 'output'
   const shown = Array.isArray(raw.shown)
-    ? [...new Set(strings(raw.shown))].filter((kind) => kinds.includes(kind) && kind !== primary)
+    ? strings(raw.shown).filter((kind) => kinds.includes(kind) && kind !== primary).slice(0, 1)
     : base.shown.filter((kind) => kind !== primary)
   const filter: Record<string, string> = {}
   if (raw.filter && typeof raw.filter === 'object' && !Array.isArray(raw.filter)) {

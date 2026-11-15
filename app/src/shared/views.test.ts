@@ -9,6 +9,8 @@ describe('views', () => {
     })
     expect(normalizeView(null, ['notes', 'outline']).shown).toEqual(['notes'])
     expect(normalizeView({ primary: 'notes' }, ['notes']).shown).toEqual([])
+    // One layer beside the rows at a time: a view saved with several keeps the first.
+    expect(normalizeView({ shown: ['outline', 'notes'] }, ['notes', 'outline']).shown).toEqual(['outline'])
   })
 
   it('matches fields, lists and presence', () => {

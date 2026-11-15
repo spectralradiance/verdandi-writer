@@ -385,7 +385,7 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Saving** matches sections to files by id and writes only the changed ones. It renames files whose section was renamed, makes files for new sections, trashes the files of removed ones, and rewrites the document note when the order or the names change. Any change to one of the document's files counts as a change to the document, which is how conflicts are found.
   - **What keeps working unchanged:** rows, section menus, the outline, search (a document folder is indexed as one document), stats, export (`.heading` names become `#` headings), History and AI.
   - **Conversion and read-only:** one-file documents with notes blocks or section markers convert on open, with Undo. Other notes open read-only with "Make this a document", and New document makes a document folder.
-- **Done, step 4 (views), 2026-11-14:** any layer the document declares shows in the rows, and any layer can be first. The other layers sit beside it as a stack of panels, side by side or stacked. Layers are added, renamed, re-kinded and deleted from the header (rename and delete rewrite the callouts in every section file; delete asks first and snapshots History). Sections can be collapsed, hidden, filtered on their frontmatter fields, or opened on a page of their own. Named views are saved in `.verdandi/views.yaml` (`shared/views.ts`); the view in use is kept in preferences per document.
+- **Done, step 4 (views), 2026-11-14:** any layer the document declares shows in the rows, and any layer can be first. The other layers sat beside it as a stack of panels, side by side or stacked (one at a time since 2026-11-15, below). Layers are added, renamed, re-kinded and deleted from the header (rename and delete rewrite the callouts in every section file; delete asks first and snapshots History). Sections can be collapsed, hidden, filtered on their frontmatter fields, or opened on a page of their own. Named views are saved in `.verdandi/views.yaml` (`shared/views.ts`); the view in use is kept in preferences per document.
 - **Done, step 5 (everything that reads documents), 2026-11-14:**
   - **Sections per layer:** `splitSections` gives each section's layers apart (`layers`, `layerWords`).
   - **Stats:** the Stats dialog counts words per layer.
@@ -408,9 +408,13 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **AI chat with the local model** no longer hangs on "Working…": the local provider reports missing libraries (transformers, accelerate) as unavailable, says when it is loading or downloading the model, and reports a failure in its generate thread; the router ends a run with an error on any unexpected exception; and the app ends a run whose stream stops without "done" or "error".
   - **Vocabulary and grammar per section, over time** (`shared/analysis.ts`, `main/styleHistory.ts`, the Stats dialog's second tab): one point per section per day, recorded when a save changes its text.
   - **Samples:** a larger example workspace (a novel with every kind of layer, poems, essays, research notes), opened from a copy by `scripts/dev.ps1 -Samples`. `main/samples.test.ts` checks it loads.
+- **Done, one layer beside the text, 2026-11-15:**
+  - **A bar over the rows** stays at the top as they scroll. On the left is the section being read, which opens a menu to jump to any section in the view. On the right is a tab for each other layer: it chooses the one layer shown beside every section, and a button hides the side.
+  - **One layer at a time:** the rows show one other layer, not a stack of panels; views saved with several keep the first. A section's own page still has every layer, one under another, each with its caption.
+  - **The status bar** counts the words of each layer apart ("119 in notes · 287 in outline"), leaving out gallery layers.
 - **Next:**
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
-  - **The status bar's "in notes" count** and the daily totals still take every layer other than the text together; the Stats dialog has them per layer.
+  - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
 
 1. **Model:**
