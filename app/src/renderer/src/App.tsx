@@ -420,7 +420,8 @@ export function App() {
   const addRoot = () => void window.verdandi.workspace.addRoot().then(setWorkspace)
   const removeRoot = (path: string) => void window.verdandi.workspace.removeRoot(path).then(setWorkspace)
 
-  const activePath = active?.path ?? null
+  // The document reopened at launch counts as active before it is clicked, so the status bar has its counts.
+  const activePath = active?.path ?? target?.path ?? null
   const outline = useOutline(target, docSections, reloadToken)
   const activeInfo = activePath ? infos[activePath] ?? null : null
   const mode = { live, focusMode, onToggleLive: toggleLive, onToggleFocus: toggleFocus }

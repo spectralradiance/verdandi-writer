@@ -412,7 +412,13 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **A bar over the rows** stays at the top as they scroll. On the left is the section being read, which opens a menu to jump to any section in the view. On the right is a tab for each other layer: it chooses the one layer shown beside every section, and a button hides the side.
   - **One layer at a time:** the rows show one other layer, not a stack of panels; views saved with several keep the first. A section's own page still has every layer, one under another, each with its caption.
   - **The status bar** counts the words of each layer apart ("119 in notes · 287 in outline"), leaving out gallery layers.
+- **Done, rows fit the text, 2026-11-15:** each row is as tall as its primary layer's text; dragging a row's height is gone. The layer beside it stays in view under the bar while a long row scrolls past, and scrolls itself when it holds more than the row or the window. The status bar has the counts of the document reopened at launch before it is clicked.
 - **Next:**
+  - **Arranging views (proposed 2026-11-15, not built):** more than one other layer at once, without making the main screen busier.
+    - The main screen stays as it is: the bar, one tab group per column, and a quick switch between saved views.
+    - A view's layout is arranged on a screen of its own (**Arrange view…**): up to three columns, with the layers dragged into them. A column with several layers either stacks them or shows them as tabs. Column widths are dragged there, or on the bar's dividers.
+    - Narrower windows fold the layout down by rule: a third column becomes tabs in the second, then everything goes under the first.
+    - Saved views carry the layout ("Drafting": text | notes; "Planning": outline | text | research), so the flexibility sits in a few named views and not in controls on every row.
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
