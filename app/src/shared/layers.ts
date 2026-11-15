@@ -5,7 +5,7 @@
 // the editor uses, the same layers are fenced blocks (`::: notes` … `:::`), the
 // form notes already take in a one-file document.
 
-import { type Document, isMap, isScalar, isSeq, parseDocument } from 'yaml'
+import { type Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 
 import { hasNotes, splitSections } from './document'
 import { classifyBlocks, stripNotes } from './notes'
@@ -100,6 +100,54 @@ const OWN_FIELDS = new Set(['id', 'title', 'heading'])
 /** A section file's fields, for views: its frontmatter without the keys Verdandi uses. */
 export function sectionFields(yaml: string | null): Record<string, unknown> {
   return Object.fromEntries(Object.entries(readFields(yaml)).filter(([key]) => !OWN_FIELDS.has(key)))
+}
+
+/** Whether `key` is one Verdandi keeps in a section file for itself (id, title, heading). */
+export function isOwnField(key: string): boolean {
+  return OWN_FIELDS.has(key)
+}
+
+/** A change to one section's fields: values to set, and keys to remove. */
+export interface FieldChange {
+  set: Record<string, unknown>
+  remove: string[]
+}
+
+/** A field's value as one line to edit: a word as it is, a list as `[a, b]`. */
+export function fieldText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  return stringifyYaml(value, { collectionStyle: 'flow', lineWidth: 0, flowCollectionPadding: false }).trim()
+}
+
+/**
+ * A value typed for a field, read as YAML would read it in the frontmatter, so that
+ * `[act-1, act-2]` is a list and `3` a number; anything that isn't valid YAML stays
+ * the text it is. A date stays text too, as Obsidian shows it.
+ */
+export function parseFieldText(text: string): unknown {
+  const clean = text.trim()
+  if (clean === '') return null
+  try {
+    const value: unknown = parseYaml(clean)
+    if (value === null || typeof value === 'object' && !Array.isArray(value)) return clean
+    return value
+  } catch {
+    return clean
+  }
+}
+
+/** A section file's frontmatter after a field change; Verdandi's own keys can't be changed this way. */
+export function changeSectionFields(yaml: string | null, change: FieldChange): string | null {
+  const fields: Record<string, unknown> = {}
+  for (const key of change.remove) fields[key] = undefined
+  Object.assign(fields, change.set)
+  for (const key of Object.keys(fields)) {
+    if (!key.trim()) throw new FrontmatterError('A field needs a name.')
+    if (isOwnField(key)) throw new FrontmatterError(`“${key}” is kept by Verdandi and can’t be changed here.`)
+  }
+  return setFields(yaml, fields)
 }
 
 /**

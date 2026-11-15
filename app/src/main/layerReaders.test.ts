@@ -8,10 +8,10 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { layerMaterial, splitSections } from '../shared/document'
-import { finishedText, undeclaredCallouts } from '../shared/layers'
+import { fieldText, finishedText, parseFieldText, undeclaredCallouts } from '../shared/layers'
 import { exportMarkdown, plainLinks } from './exporter'
 import { BackupStore, PathGuard } from './fileService'
-import { addAttachments, convertFileToFolder, readFolderDocument, SECTIONS_FILE, writeFolderDocument } from './folderDocument'
+import { addAttachments, convertFileToFolder, readFolderDocument, SECTIONS_FILE, setSectionFields, writeFolderDocument } from './folderDocument'
 import { searchableText } from './searchIndex'
 
 const LAYERS = ['notes', 'outline']
@@ -193,5 +193,47 @@ describe('addAttachments', () => {
     expect(await addAttachments(folder, [path.join(source, 'map.png')])).toEqual(['map 2.png'])
     expect(await readFile(path.join(folder, 'attachments', 'map 2.png'), 'utf8')).toBe('png bytes')
     await expect(addAttachments(source, [path.join(source, 'map.png')])).rejects.toThrow(/not a document folder/)
+  })
+})
+
+describe('section fields edited in the app', () => {
+  it('reads and writes field values as one line each', () => {
+    expect(fieldText(['act-1', 'act-2'])).toBe('[act-1, act-2]')
+    expect(fieldText('draft')).toBe('draft')
+    expect(fieldText(3)).toBe('3')
+    expect(parseFieldText('[act-1, act-2]')).toEqual(['act-1', 'act-2'])
+    expect(parseFieldText(' 3 ')).toBe(3)
+    expect(parseFieldText('2026-11-14')).toBe('2026-11-14')
+    expect(parseFieldText('a: b')).toBe('a: b')
+    expect(parseFieldText('[unclosed')).toBe('[unclosed')
+    expect(parseFieldText('')).toBeNull()
+  })
+
+  it('changes a section file’s frontmatter, keeping its comments and Verdandi’s own keys', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-fields-'))
+    const file = path.join(parent, 'Eras.md')
+    await writeFile(file, '# One\nFirst.\n\n# Two\nSecond.\n')
+    let count = 0
+    const { folder } = await convertFileToFolder(file, () => `id${(count += 1)}`)
+    const one = path.join(folder, 'One.md')
+    const source = await readFile(one, 'utf8')
+    await writeFile(one, source.replace('id: id1\n', 'id: id1\n# where the draft is\nstatus: idea\npov: Ana\n'))
+    const backups = new BackupStore(await mkdtemp(path.join(tmpdir(), 'verdandi-backups-')), new PathGuard(() => [tmpdir()]))
+    const before = await readFolderDocument(folder)
+    expect(before.fields?.id1).toEqual({ status: 'idea', pov: 'Ana' })
+
+    const result = await setSectionFields(folder, 'id1', { set: { status: 'draft', tags: ['act-1'] }, remove: ['pov'] }, before.mtimeMs, backups)
+    expect(result.fields).toEqual({ status: 'draft', tags: ['act-1'] })
+    const written = await readFile(one, 'utf8')
+    expect(written).toContain('id: id1\n# where the draft is\nstatus: draft\ntags:\n  - act-1\n---\n')
+    expect(written).toContain('First.')
+    const after = await readFolderDocument(folder)
+    expect(after.mtimeMs).toBe(result.mtimeMs)
+    expect(after.text).toBe(before.text)
+
+    // The token it was given is stale now; Verdandi's own keys are refused.
+    await expect(setSectionFields(folder, 'id1', { set: { status: 'done' }, remove: [] }, before.mtimeMs, backups)).rejects.toThrow(/changed on disk/)
+    await expect(setSectionFields(folder, 'id1', { set: { id: 'x' }, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/kept by Verdandi/)
+    await expect(setSectionFields(folder, 'nope', { set: {}, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/no file yet/)
   })
 })

@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 
 import { type AiConfig, type AiMessage, type AiRunRequest, type AiSettingsState, normalizeAiConfig, SECRET_NAMES, type SecretName } from '../shared/ai'
 import { type DictionaryDownload, type DictionaryStatus, type ExportOptions, IPC, LOCAL_FILE_SCHEME, type LexiconEntry, type WorkspaceState, type WriteRequest } from '../shared/ipc'
-import { type LayerChange, layerNamesOf } from '../shared/layers'
+import { type FieldChange, type LayerChange, layerNamesOf } from '../shared/layers'
 import { pathFromLocalFileUrl } from '../shared/paths'
 import { MARGIN_INCHES, normalizePreferences } from '../shared/preferences'
 import { AiBridge } from './aiBridge'
@@ -16,7 +16,7 @@ import { exportMarkdown, plainLinks, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
   addAttachments, convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
-  changeLayers, readViews, saveViews, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
+  changeLayers, readViews, saveViews, setSectionFields, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
 } from './folderDocument'
 import { LexiconStore } from './lexicon'
 import { DEFAULT_PROMPTS, PromptStore, renderTemplate } from './prompts'
@@ -493,6 +493,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.documentsChangeLayers, (_event, folder: unknown, change: LayerChange) => {
     if (!change || typeof change !== 'object') throw new TypeError('change must be an object')
     return changeLayers(guard.resolve(folder), change, backups)
+  })
+  ipcMain.handle(IPC.documentsSetFields, (_event, folder: unknown, id: unknown, change: unknown, expected: unknown) => {
+    if (typeof id !== 'string' || !id) throw new TypeError('id must be a section id')
+    const value = change as Partial<FieldChange> | null
+    if (!value || typeof value.set !== 'object' || value.set === null || Array.isArray(value.set) || !Array.isArray(value.remove)) {
+      throw new TypeError('change must be { set, remove }')
+    }
+    const remove = value.remove.filter((key): key is string => typeof key === 'string')
+    return setSectionFields(guard.resolve(folder), id, { set: value.set, remove }, typeof expected === 'number' ? expected : null, backups)
   })
   ipcMain.handle(IPC.documentsReadViews, (_event, folder: unknown) => readViews(guard.resolve(folder)))
   ipcMain.handle(IPC.documentsSaveViews, (_event, folder: unknown, views: unknown) => saveViews(guard.resolve(folder), views))

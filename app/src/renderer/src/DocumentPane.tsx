@@ -4,8 +4,8 @@ import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
-import { type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
-import type { DocumentView, SavedView } from '../../shared/views'
+import { type FieldChange, type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
+import { type DocumentView, fieldValues, type SavedView } from '../../shared/views'
 import { loadView, storeView } from './documentView'
 import { readPref, writePref } from './prefs'
 import { extractHeadings, type Heading } from '../../shared/text'
@@ -15,7 +15,7 @@ import { SectionGrid } from './editor/SectionGrid'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { ViewControls } from './ViewControls'
-import { FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
+import { FieldsDialog, FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
 import { History, X } from 'lucide-react'
 
 const AUTOSAVE_DELAY_MS = 1200
@@ -135,6 +135,8 @@ export function DocumentPane({
   const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
   const [layerBusy, setLayerBusy] = useState(false)
   const [layerError, setLayerError] = useState<string | null>(null)
+  /** The section whose fields are being edited, by its id. */
+  const [editingFields, setEditingFields] = useState<{ id: string; title: string } | null>(null)
   // Callout types left as text on purpose, so the offer to make them layers is not repeated.
   const [keptCallouts, setKeptCallouts] = useState<string[]>(() => {
     try {
@@ -423,6 +425,39 @@ export function DocumentPane({
     }
   }
 
+  /** Changes one section's fields in its file: saves first, then writes them without reloading the editor. */
+  const changeFields = async (id: string, change: FieldChange) => {
+    setLayerBusy(true)
+    setLayerError(null)
+    try {
+      if (!(await save())) throw new Error('your edits could not be saved first')
+      const known = disk.current
+      if (!known) return
+      const run = window.verdandi.documents.setFields(path, id, change, known.mtimeMs).then((result) => {
+        disk.current = { ...known, mtimeMs: result.mtimeMs }
+        return result
+      })
+      // The watcher waits for this, so it finds the document as the editor knows it.
+      const settled = run.then(() => true, () => false)
+      inFlight.current = settled
+      let result: Awaited<typeof run>
+      try {
+        result = await run
+      } finally {
+        if (inFlight.current === settled) inFlight.current = null
+      }
+      setLoaded((previous) => previous && {
+        ...previous,
+        document: { ...previous.document, mtimeMs: result.mtimeMs, fields: { ...previous.document.fields, [id]: result.fields } },
+      })
+      setEditingFields(null)
+    } catch (error) {
+      setLayerError(`Couldn’t save the fields: ${errorMessage(error)}`)
+    } finally {
+      setLayerBusy(false)
+    }
+  }
+
   const fileName = folderName(path)
 
   // A callout written in Obsidian with a type the document does not declare stays text; offer to make it a layer.
@@ -522,6 +557,20 @@ export function DocumentPane({
           }}
         />
       )}
+      {editingFields && loaded?.document.fields && (
+        <FieldsDialog
+          section={editingFields.title}
+          fields={loaded.document.fields[editingFields.id] ?? {}}
+          known={fieldValues(Object.values(loaded.document.fields))}
+          busy={layerBusy}
+          error={layerError}
+          onSave={(change) => void changeFields(editingFields.id, change)}
+          onClose={() => {
+            setEditingFields(null)
+            setLayerError(null)
+          }}
+        />
+      )}
       {historyOpen && (
         <HistoryDialog
           path={path}
@@ -587,6 +636,7 @@ export function DocumentPane({
           onViewChange={changeView}
           fields={loaded.document.fields}
           onManageLayers={loaded.document.folder && mode === 'edit' ? () => setDialog('layers') : undefined}
+          onEditFields={loaded.document.folder && mode === 'edit' ? (id, title) => setEditingFields({ id, title }) : undefined}
           onDocChanged={onDocChanged}
           onSave={() => void save()}
           onBlur={() => void save()}

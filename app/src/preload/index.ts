@@ -54,6 +54,7 @@ const api: VerdandiApi = {
     convert: (path) => ipcRenderer.invoke(IPC.documentsConvert, path),
     undoConvert: (folder) => ipcRenderer.invoke(IPC.documentsUndoConvert, folder),
     changeLayers: (folder, change) => ipcRenderer.invoke(IPC.documentsChangeLayers, folder, change),
+    setFields: (folder, id, change, expectedMtimeMs) => ipcRenderer.invoke(IPC.documentsSetFields, folder, id, change, expectedMtimeMs),
     readViews: (folder) => ipcRenderer.invoke(IPC.documentsReadViews, folder),
     saveViews: (folder, views) => ipcRenderer.invoke(IPC.documentsSaveViews, folder, views),
     addImages: (folder, files) => ipcRenderer.invoke(IPC.documentsAddImages, folder, files),

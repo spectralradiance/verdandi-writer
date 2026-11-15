@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyChange, changedRun, continuedName, deleteSection, fromSectionOffset, isFolderText, joinSections, mergeIntoPrevious, moveSection, partition, project,
-  type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble, splitSection,
+  type Projection, renameSection, sectionText, sectionTitle, setSectionHeading, shownLineNumbers, showsPreamble, splitFromLayer, splitSection,
   toSectionOffset,
 } from './sectionModel'
 
@@ -65,6 +65,34 @@ describe('named sections', () => {
     // A selection that runs to the end of the section needs no continuation.
     expect(splitSection('# A\nOne.\nTwo.\n', 0, 2, 'B', { line: 3, name: 'C' })).toBe('# A\nOne.\n\n<!-- section: B -->\nTwo.\n')
     expect(continuedName('A (continued)')).toBe('A (continued)')
+  })
+
+  it('keeps the layers that are not anchored with the section that was split', () => {
+    const layers = ['notes', 'outline']
+    const source = '# A\nOne.\n\nTwo.\n\n::: notes\nn\n:::\n\nThree.\n\n::: outline\n- beat\n:::\n'
+    // From the text: notes go with their paragraph, the outline stays.
+    expect(splitSection(source, 0, 3, 'B', undefined, layers, ['outline']))
+      .toBe('# A\nOne.\n\n::: outline\n- beat\n:::\n\n<!-- section: B -->\nTwo.\n\n::: notes\nn\n:::\n\nThree.\n')
+    // With a continuation, which starts with a blank outline too.
+    expect(splitSection(source, 0, 3, 'B', { line: 9, name: 'A (continued)' }, layers, ['outline']))
+      .toBe('# A\nOne.\n\n::: outline\n- beat\n:::\n\n<!-- section: B -->\nTwo.\n\n::: notes\nn\n:::\n\n<!-- section: A (continued) -->\nThree.\n')
+  })
+
+  it('makes a section from lines of a layer, with blank text', () => {
+    const layers = ['notes', 'outline']
+    const source = '# A\nOne.\n\n::: notes\nfirst\nsecond\n:::\n\nTwo.\n\n::: outline\n- x\n- y\n:::\n\n# C\nThree.'
+    const second = 5
+    // One line of a notes block: the block keeps the rest.
+    expect(splitFromLayer(source, 0, 'notes', second, second + 1, 'B', layers))
+      .toBe('# A\nOne.\n\n::: notes\nfirst\n:::\n\nTwo.\n\n::: outline\n- x\n- y\n:::\n\n<!-- section: B -->\n::: notes\nsecond\n:::\n\n# C\nThree.')
+    // The whole outline: its block goes from the section.
+    expect(splitFromLayer(source, 0, 'outline', 11, 13, 'B', layers))
+      .toBe('# A\nOne.\n\n::: notes\nfirst\nsecond\n:::\n\nTwo.\n\n<!-- section: B -->\n::: outline\n- x\n- y\n:::\n\n# C\nThree.')
+    // Notes from two blocks, across the text between them: the text stays.
+    const two = '# A\nOne.\n\n::: notes\nfirst\n:::\n\nTwo.\n\n::: notes\nsecond\n:::\n'
+    expect(splitFromLayer(two, 0, 'notes', 4, 11, 'B', layers))
+      .toBe('# A\nOne.\n\nTwo.\n\n<!-- section: B -->\n::: notes\nfirst\n\nsecond\n:::\n')
+    expect(splitFromLayer(source, 0, 'notes', 1, 3, 'B', layers)).toBeNull()
   })
 })
 

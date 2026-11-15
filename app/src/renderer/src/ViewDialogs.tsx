@@ -1,7 +1,7 @@
 import { Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { type Layer, type LayerChange, type LayerKind, layerNameError } from '../../shared/layers'
+import { type FieldChange, fieldText, isOwnField, type Layer, type LayerChange, type LayerKind, layerNameError, parseFieldText } from '../../shared/layers'
 import { fieldValues } from '../../shared/views'
 import { Modal } from './Modal'
 
@@ -178,6 +178,78 @@ export function LayersDialog({ layers, busy, error, onChange, onClose }: {
       <footer className="modal-footer">
         <button type="button" className="primary" onClick={onClose}>Done</button>
       </footer>
+    </Modal>
+  )
+}
+
+/**
+ * One section's fields: its file's frontmatter, such as `status: draft` or
+ * `tags: [act-1]`. Values are read as YAML reads them, so a list is written `[a, b]`.
+ */
+export function FieldsDialog({ section, fields, known, busy, error, onSave, onClose }: {
+  section: string
+  fields: Record<string, unknown>
+  /** Every field the document's sections use, with their values, to suggest. */
+  known: Map<string, string[]>
+  busy: boolean
+  error: string | null
+  onSave: (change: FieldChange) => void
+  onClose: () => void
+}) {
+  const [entries, setEntries] = useState<[string, string][]>(() => {
+    const current = Object.entries(fields).map(([key, value]): [string, string] => [key, fieldText(value)])
+    return current.length ? current : [['', '']]
+  })
+  const set = (index: number, entry: [string, string]) => setEntries((list) => list.map((item, at) => (at === index ? entry : item)))
+  const names = entries.map(([key]) => key.trim()).filter(Boolean)
+  const own = names.find((key) => isOwnField(key))
+  const twice = names.find((key, at) => names.indexOf(key) !== at)
+  const problem = own ? `“${own}” is kept by Verdandi for itself.` : twice ? `There are two fields called “${twice}”.` : null
+  const save = () => {
+    if (problem) return
+    const next = new Map(entries.filter(([key]) => key.trim()).map(([key, value]) => [key.trim(), value]))
+    const setValues: Record<string, unknown> = {}
+    for (const [key, value] of next) {
+      // A field left as it was is not rewritten, so its formatting in the file stays.
+      if (key in fields && fieldText(fields[key]) === value) continue
+      setValues[key] = parseFieldText(value)
+    }
+    onSave({ set: setValues, remove: Object.keys(fields).filter((key) => !next.has(key)) })
+  }
+  return (
+    <Modal label="Section fields" className="view-dialog" onClose={onClose}>
+      <Header title={`Fields of “${section}”`} onClose={onClose} />
+      <form className="settings-body" onSubmit={(event) => {
+        event.preventDefault()
+        save()
+      }}>
+        <div className="settings-section">
+          {entries.map(([field, value], index) => (
+            <div className="view-filter-row" key={index}>
+              <input list="section-fields" value={field} aria-label="Field" placeholder="status, tags, pov…" disabled={busy}
+                autoFocus={index === entries.length - 1 && !field}
+                onChange={(event) => set(index, [event.target.value, value])} />
+              <input list={`section-field-values-${index}`} value={value} aria-label={`Value of ${field || 'the field'}`} placeholder="value" disabled={busy}
+                onChange={(event) => set(index, [field, event.target.value])} />
+              <datalist id={`section-field-values-${index}`}>
+                {(known.get(field.trim()) ?? []).map((option) => <option key={option} value={option} />)}
+              </datalist>
+              <button type="button" className="icon-button" aria-label={`Remove ${field || 'this field'}`} title="Remove this field" disabled={busy}
+                onClick={() => setEntries((list) => list.filter((_, at) => at !== index))}><Trash2 size={13} aria-hidden="true" /></button>
+            </div>
+          ))}
+          <datalist id="section-fields">
+            {[...known.keys()].map((option) => <option key={option} value={option} />)}
+          </datalist>
+          <button type="button" className="link-button" disabled={busy} onClick={() => setEntries((list) => [...list, ['', '']])}>Add a field</button>
+          <p className="lexical-hint">Fields are saved in the section file’s frontmatter, where Obsidian shows them as properties. Write a list as <code>[act-1, act-2]</code>.</p>
+          {(problem ?? error) && <p className="lexical-message status-error">{problem ?? error}</p>}
+        </div>
+        <footer className="modal-footer">
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={busy || problem !== null}>Save</button>
+        </footer>
+      </form>
     </Modal>
   )
 }

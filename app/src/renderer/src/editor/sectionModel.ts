@@ -341,27 +341,117 @@ const trimEnd = (lines: string[]) => {
 }
 
 /**
- * Starts a named section at line `line` (0-based) of section `index`. With `end`, the
- * new section stops before line `end.line`, and the rest of the section after it
- * continues as another named section, `end.name`, so the text keeps its order.
+ * Takes the blocks of the `stay` layers out of `lines`, each with the blank line
+ * that set it apart. Returns the lines left and the blocks, in order.
+ */
+function takeBlocks(lines: readonly string[], layers: LayerNames, stay: readonly string[]): { rest: string[]; blocks: string[][] } {
+  if (stay.length === 0) return { rest: [...lines], blocks: [] }
+  const roles = classifyBlocks(lines, layers)
+  const rest: string[] = []
+  const blocks: string[][] = []
+  let block: string[] | null = null
+  roles.forEach((role, at) => {
+    if (block) {
+      block.push(lines[at])
+      if (role.role === 'close') block = null
+    } else if (role.role === 'open' && role.layer !== null && stay.includes(role.layer)) {
+      if (rest.length > 0 && rest[rest.length - 1].trim() === '') rest.pop()
+      block = [lines[at]]
+      blocks.push(block)
+    } else {
+      rest.push(lines[at])
+    }
+  })
+  return { rest, blocks }
+}
+
+const markerFor = (text: string, layers: LayerNames) => {
+  // A document folder's new sections get ids at once, so each one is a file of its own from the first save.
+  const folder = isFolderText(text, layers)
+  return (value: string) => sectionMarkerLine(value, folder ? { id: newSectionId() } : {})
+}
+
+/**
+ * Starts a named section at line `line` (0-based) of section `index`, from the text.
+ * With `end`, the new section stops before line `end.line`, and the rest of the
+ * section after it continues as another named section, `end.name`, so the text keeps
+ * its order. Anchored layers' blocks go with the paragraphs they follow; the blocks of
+ * the `stay` layers (those not anchored, such as an outline) stay with the section
+ * that was split, so the new sections start with those layers blank.
  * Null when the section would be left with nothing but its heading or name.
  */
 export function splitSection(
   text: string, index: number, line: number, name: string, end?: { line: number; name: string }, layers?: LayerNames,
+  stay: readonly string[] = [],
 ): string | null {
-  // A document folder's new sections get ids at once, so each one is a file of its own from the first save.
-  const folder = isFolderText(text, layers)
-  const markerLine = (value: string) => sectionMarkerLine(value, folder ? { id: newSectionId() } : {})
+  const markerLine = markerFor(text, layers)
   return replaceSection(text, index, (lines, section) => {
     if (line < 1 || line >= lines.length) return null
     const before = trimEnd(lines.slice(0, line))
     const ownLine = section.title === null ? 0 : 1
     if (!before.slice(ownLine).some((value) => value.trim() !== '')) return null
-    const split = [...before, '', markerLine(name)]
-    if (!end || end.line <= line || end.line >= lines.length || !lines.slice(end.line).some((value) => value.trim() !== '')) {
-      return [...split, ...lines.slice(line)]
+    const continues = end && end.line > line && end.line < lines.length && lines.slice(end.line).some((value) => value.trim() !== '')
+    const moved = takeBlocks(lines.slice(line, continues ? end.line : lines.length), layers, stay)
+    const after = continues ? takeBlocks(lines.slice(end.line), layers, stay) : null
+    const kept = [...moved.blocks, ...(after?.blocks ?? [])].flatMap((block) => ['', ...block])
+    const split = [...before, ...kept, '', markerLine(name)]
+    if (!after || !end) return [...split, ...moved.rest]
+    return [...split, ...trimEnd(moved.rest), '', markerLine(end.name), ...after.rest]
+  }, layers)
+}
+
+/**
+ * Makes a new section, after section `index`, from lines `from` to `to` (0-based,
+ * `to` not included) of the section's `kind` layer: those lines leave the section's
+ * blocks of that layer (a block left empty goes too) and become the new section's
+ * only content, so its text and its other layers start blank.
+ * Null when there is nothing of the layer in those lines.
+ */
+export function splitFromLayer(
+  text: string, index: number, kind: string, from: number, to: number, name: string, layers?: LayerNames,
+): string | null {
+  const markerLine = markerFor(text, layers)
+  return replaceSection(text, index, (lines) => {
+    const roles = classifyBlocks(lines, layers)
+    const inLayer = (at: number) => roles[at].role === 'notes' && roles[at].layer === kind
+    const moved: string[] = []
+    const left: string[] = []
+    let lastBlock = -1
+    let block = -1
+    roles.forEach((role, at) => {
+      if (role.role === 'open') block = at
+      if (at >= from && at < to && inLayer(at)) {
+        // Lines from different blocks are kept apart by a blank line.
+        if (lastBlock >= 0 && block !== lastBlock && moved.length > 0 && moved[moved.length - 1].trim() !== '') moved.push('')
+        lastBlock = block
+        moved.push(lines[at])
+      } else {
+        left.push(lines[at])
+      }
+    })
+    const content = trimEnd(moved)
+    while (content.length > 0 && content[0].trim() === '') content.shift()
+    if (content.length === 0) return null
+    // Blocks of the layer with nothing left in them go, with the blank line before them.
+    const leftRoles = classifyBlocks(left, layers)
+    const kept: string[] = []
+    for (let at = 0; at < left.length; at += 1) {
+      const role = leftRoles[at]
+      if (role.role === 'open' && role.layer === kind) {
+        let close = at + 1
+        while (close < left.length && leftRoles[close].role !== 'close') close += 1
+        if (left.slice(at + 1, close).every((value) => value.trim() === '')) {
+          if (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop()
+          at = close
+          continue
+        }
+      }
+      kept.push(left[at])
     }
-    return [...split, ...trimEnd(lines.slice(line, end.line)), '', markerLine(end.name), ...lines.slice(end.line)]
+    let body = kept.length
+    while (body > 0 && kept[body - 1].trim() === '') body -= 1
+    // The section's trailing blank lines (the file's last line break) stay at the end.
+    return [...kept.slice(0, body), '', markerLine(name), blockOpenLine(kind), ...content, NOTES_CLOSE_LINE, ...kept.slice(body)]
   }, layers)
 }
 
