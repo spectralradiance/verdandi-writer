@@ -413,12 +413,12 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **One layer at a time:** the rows show one other layer, not a stack of panels; views saved with several keep the first. A section's own page still has every layer, one under another, each with its caption.
   - **The status bar** counts the words of each layer apart ("119 in notes · 287 in outline"), leaving out gallery layers.
 - **Done, rows fit the text, 2026-11-15:** each row is as tall as its primary layer's text; dragging a row's height is gone. The layer beside it stays in view under the bar while a long row scrolls past, and scrolls itself when it holds more than the row or the window. The status bar has the counts of the document reopened at launch before it is clicked.
+- **Done, arranging views, 2026-11-15** (`shared/views.ts`, `ArrangeView.tsx`):
+  - **The layout of a view:** the first column holds the primary layer and any layers put under it. Up to two columns sit beside it, and each shows its layers as tabs (one at a time, chosen in the bar) or stacked (all at once). Each column has a width. Views saved before columns read as one column of tabs.
+  - **Arrange view…** (the Layers menu, or the bar's button) draws the columns at their widths: layers are dragged between them or moved with their menus, and a column's mode and width are set there. A layer in no column doesn't show in the rows; a section's own page still shows every layer.
+  - **The bar** has each column's tabs, and dragging the line between two columns sets their widths. Its hide button puts the side columns away and brings them back as they were.
+  - **Narrow windows** fold the later columns into tabs in the last one kept, when a column would be under 340px; below 720px everything goes under the first column, as before.
 - **Next:**
-  - **Arranging views (proposed 2026-11-15, not built):** more than one other layer at once, without making the main screen busier.
-    - The main screen stays as it is: the bar, one tab group per column, and a quick switch between saved views.
-    - A view's layout is arranged on a screen of its own (**Arrange view…**): up to three columns, with the layers dragged into them. A column with several layers either stacks them or shows them as tabs. Column widths are dragged there, or on the bar's dividers.
-    - Narrower windows fold the layout down by rule: a third column becomes tabs in the second, then everything goes under the first.
-    - Saved views carry the layout ("Drafting": text | notes; "Planning": outline | text | research), so the flexibility sits in a few named views and not in controls on every row.
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.

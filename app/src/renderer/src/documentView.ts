@@ -1,7 +1,7 @@
 // The view each document is shown with now, kept in the app's preferences (the
 // saved views of a document folder are in its `.verdandi/views.yaml`).
 
-import { defaultView, type DocumentView, normalizeView } from '../../shared/views'
+import { type DocumentView, normalizeView } from '../../shared/views'
 import { readPref, writePref } from './prefs'
 
 const key = (path: string) => `view:${path.toLowerCase()}`
@@ -20,13 +20,11 @@ export function loadView(path: string, layers: readonly string[]): DocumentView 
       // fall through to the defaults
     }
   }
-  const base = defaultView(layers)
   const legacy = readPref('notesView')
   const primary = (readPref('primary') ?? legacy) === 'notes' && layers.includes('notes') ? 'notes' : 'output'
   const secondary = readPref('secondary')
   const sideShown = secondary !== null ? secondary !== 'false' : legacy === null || legacy === 'all'
-  const other = primary === 'output' ? base.shown : ['output']
-  return { ...base, primary, shown: sideShown ? other : [] }
+  return { ...normalizeView({ primary }, layers), sideHidden: !sideShown && layers.length > 0 }
 }
 
 export function storeView(path: string, view: DocumentView): void {

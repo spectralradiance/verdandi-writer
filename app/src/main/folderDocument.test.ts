@@ -219,9 +219,10 @@ describe('layers and views of a document folder', () => {
     expect(await readViews(folder)).toEqual([])
     await saveViews(folder, [{ name: 'Drafts', primary: 'notes', shown: ['output', 'nonsense'], filter: { status: 'draft' } }])
     expect(await readFile(path.join(folder, '.verdandi', 'views.yaml'), 'utf8')).toBe(
-      'views:\n  - name: Drafts\n    primary: notes\n    shown:\n      - output\n    filter:\n      status: draft\n',
+      'views:\n  - name: Drafts\n    primary: notes\n    columns:\n      - layers:\n          - output\n    filter:\n      status: draft\n',
     )
-    expect((await readViews(folder))[0]).toMatchObject({ name: 'Drafts', primary: 'notes', shown: ['output'], filter: { status: 'draft' } })
+    // A view in the shape saved before columns is written in the new one.
+    expect((await readViews(folder))[0]).toMatchObject({ name: 'Drafts', primary: 'notes', columns: [{ layers: ['output'], mode: 'tabs' }], filter: { status: 'draft' } })
     await saveViews(folder, [])
     expect(await readdir(path.join(folder, '.verdandi'))).not.toContain('views.yaml')
   })
