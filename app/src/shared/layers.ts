@@ -8,6 +8,7 @@
 import { type Document, isMap, isScalar, isSeq, parseDocument } from 'yaml'
 
 import { hasNotes, splitSections } from './document'
+import { classifyBlocks } from './notes'
 import { extractSectionMarkers, sectionMarkerLine } from './text'
 
 // ---------------------------------------------------------------------------
@@ -86,12 +87,81 @@ export interface Layer {
 
 export const NOTES_LAYER: Layer = { name: 'notes', kind: 'prose', anchored: true }
 
-const LAYER_KINDS: readonly LayerKind[] = ['prose', 'list', 'gallery']
+/** A change to a document's layers. */
+export type LayerChange =
+  | { add: Layer }
+  | { rename: string; to: string }
+  | { remove: string }
+  | { change: string; kind?: LayerKind; anchored?: boolean }
+
+/** Frontmatter keys Verdandi keeps for itself, which are not a section's fields. */
+const OWN_FIELDS = new Set(['id', 'title', 'heading'])
+
+/** A section file's fields, for views: its frontmatter without the keys Verdandi uses. */
+export function sectionFields(yaml: string | null): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(readFields(yaml)).filter(([key]) => !OWN_FIELDS.has(key)))
+}
+
+/**
+ * The names a document's layer blocks use, for the classifier: a folder document's
+ * declared layers, or null for a one-file document (its `::: notes` blocks alone).
+ */
+export function layerNamesOf(document: { layers?: readonly Layer[] } | null | undefined): string[] | null {
+  return document?.layers ? document.layers.map((layer) => layer.name) : null
+}
+
+export const LAYER_KINDS: readonly LayerKind[] = ['prose', 'list', 'gallery']
 const LAYER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** Whether `name` can name a layer. `text` is the section's own text, so it is taken. */
 export function isLayerName(name: string): boolean {
-  return LAYER_NAME.test(name) && name !== 'text'
+  return LAYER_NAME.test(name) && name !== 'text' && name !== 'output'
+}
+
+/** Why `name` cannot name a new layer (or `current`'s new name), or null when it can. */
+export function layerNameError(name: string, layers: readonly Layer[], current?: string): string | null {
+  const clean = name.trim().toLowerCase()
+  if (!clean) return 'A layer needs a name.'
+  if (clean === 'text' || clean === 'output') return '“Text” is the section’s own text; choose another name.'
+  if (!LAYER_NAME.test(clean)) return 'Use letters, digits and hyphens only (it is the callout type in Obsidian, as in [!notes]).'
+  if (layers.some((layer) => layer.name === clean && layer.name !== current)) return `There is already a layer called “${clean}”.`
+  return null
+}
+
+/** The working text with the blocks of layer `from` renamed `to` (keeping each block's fold sign and title). */
+export function renameLayerBlocks(text: string, layers: readonly string[], from: string, to: string): string {
+  const lines = text.split('\n')
+  const roles = classifyLayerLines(lines, layers)
+  let changed = false
+  const out = lines.map((line, index) => {
+    if (roles[index].role !== 'open' || roles[index].layer !== from) return line
+    changed = true
+    return line.replace(/^([ \t]{0,3}:{3,}[ \t]*)[A-Za-z0-9-]+/, `$1${to}`)
+  })
+  return changed ? out.join('\n') : text
+}
+
+/** The working text without the blocks of layer `name`, nor the blank line that set each one apart. */
+export function removeLayerBlocks(text: string, layers: readonly string[], name: string): string {
+  const lines = text.split('\n')
+  const roles = classifyLayerLines(lines, layers)
+  if (!roles.some((line) => line.role === 'open' && line.layer === name)) return text
+  const out: string[] = []
+  lines.forEach((line, index) => {
+    const { role, layer } = roles[index]
+    if (layer !== name || role === 'text') {
+      out.push(line)
+      return
+    }
+    if (role === 'open' && out.length > 0 && out[out.length - 1].trim() === '') out.pop()
+  })
+  return out.join('\n')
+}
+
+/** Whether a layer has anything written in a working text. */
+export function layerHasContent(text: string, layers: readonly string[], name: string): boolean {
+  const lines = text.split('\n')
+  return classifyLayerLines(lines, layers).some((line, index) => line.role === 'layer' && line.layer === name && lines[index].trim() !== '')
 }
 
 /** The layers a document note declares. A bare name is a prose layer. */
@@ -117,7 +187,6 @@ const QUOTE = /^[ \t]{0,3}>/
 const QUOTE_PREFIX = /^[ \t]{0,3}>[ \t]?/
 /** `::: notes`, with the callout's fold sign and title after a space: `::: notes - Title`. */
 const BLOCK_OPEN = /^[ \t]{0,3}:{3,}[ \t]*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?:[ \t](.*))?$/
-const BLOCK_CLOSE = /^[ \t]{0,3}:{3,}[ \t]*$/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
 
 export type LayerLineRole = 'text' | 'open' | 'layer' | 'close'
@@ -135,36 +204,7 @@ export interface LayerLine {
  * one-file document, fenced code is respected inside and outside blocks.
  */
 export function classifyLayerLines(lines: readonly string[], layers: readonly string[]): LayerLine[] {
-  const names = new Set(layers.map((name) => name.toLowerCase()))
-  const roles: LayerLine[] = []
-  let layer: string | null = null
-  let fence: string | null = null
-  for (const raw of lines) {
-    const line = raw.replace(/\r$/, '')
-    const inside = (): LayerLine => ({ role: layer === null ? 'text' : 'layer', layer })
-    const fenceMatch = FENCE.exec(line)
-    if (fenceMatch) {
-      if (fence === null) fence = fenceMatch[1][0]
-      else if (fenceMatch[1][0] === fence) fence = null
-      roles.push(inside())
-      continue
-    }
-    if (fence !== null) {
-      roles.push(inside())
-      continue
-    }
-    const open: RegExpExecArray | null = layer === null ? BLOCK_OPEN.exec(line) : null
-    if (open && names.has(open[1].toLowerCase())) {
-      layer = open[1].toLowerCase()
-      roles.push({ role: 'open', layer })
-    } else if (layer !== null && BLOCK_CLOSE.test(line)) {
-      roles.push({ role: 'close', layer })
-      layer = null
-    } else {
-      roles.push(inside())
-    }
-  }
-  return roles
+  return classifyBlocks(lines, layers).map(({ role, layer }) => ({ role: role === 'output' ? 'text' : role === 'notes' ? 'layer' : role, layer }))
 }
 
 /** The working text of a section file's body: its layer callouts as fenced blocks. */
@@ -484,9 +524,9 @@ export function assembleDocument(sections: readonly AssembledSection[]): string 
  * The sections of the editor's text. Text before the first marker (typed or pasted
  * there) becomes a section of its own, "Introduction".
  */
-export function disassembleDocument(text: string): DisassembledSection[] {
+export function disassembleDocument(text: string, layers: readonly string[] = []): DisassembledSection[] {
   const lines = text.split('\n')
-  const markers = extractSectionMarkers(text)
+  const markers = extractSectionMarkers(text, layers)
   const sections: DisassembledSection[] = []
   const first = markers[0]?.line ?? lines.length + 1
   const preamble = lines.slice(0, first - 1)
@@ -515,8 +555,8 @@ export function tidySectionText(text: string): string {
 }
 
 /** The text with a folder document's `.heading` markers turned into `#` headings, for export. */
-export function markersToHeadings(text: string): string {
-  const markers = extractSectionMarkers(text).filter((marker) => marker.heading)
+export function markersToHeadings(text: string, layers?: readonly string[] | null): string {
+  const markers = extractSectionMarkers(text, layers).filter((marker) => marker.heading)
   if (markers.length === 0) return text
   const lines = text.split('\n')
   for (const marker of markers) lines[marker.line - 1] = `# ${marker.name}`

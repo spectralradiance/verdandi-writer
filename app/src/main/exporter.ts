@@ -7,7 +7,7 @@ import { marked } from 'marked'
 import { demoteHeadings, splitSections } from '../shared/document'
 import type { ExportOptions } from '../shared/ipc'
 import { markersToHeadings } from '../shared/layers'
-import { stripNotes } from '../shared/notes'
+import { type LayerNames, stripNotes } from '../shared/notes'
 import { stripSectionMarkers } from '../shared/text'
 import { DEFAULT_PREFERENCES, type ExportPreferences } from '../shared/preferences'
 
@@ -23,12 +23,12 @@ export interface ExportedMarkdown {
  * blocks; the notes export gives each section's notes under the section's heading.
  * With a title, the title is the only top-level heading and the rest move down one.
  */
-export function exportMarkdown(text: string, title: string, options: Pick<ExportOptions, 'content' | 'includeTitle'>): ExportedMarkdown {
+export function exportMarkdown(text: string, title: string, options: Pick<ExportOptions, 'content' | 'includeTitle'>, layers?: LayerNames): ExportedMarkdown {
   const level = options.includeTitle ? 2 : 1
   const parts: string[] = options.includeTitle ? [`# ${title}`] : []
-  const sections = splitSections(text)
+  const sections = splitSections(text, layers)
   if (options.content === 'output') {
-    const output = stripSectionMarkers(markersToHeadings(stripNotes(text))).trim()
+    const output = stripSectionMarkers(markersToHeadings(stripNotes(text, layers), layers), layers).trim()
     if (output) parts.push(options.includeTitle ? demoteHeadings(output, 2) : output)
     return { markdown: `${parts.join('\n\n')}\n`, sections: sections.filter((section) => section.output).length, skipped: [] }
   }

@@ -2199,7 +2199,8 @@ body.resizing {
 }
 
 .section-row:not(.secondary-hidden) {
-  min-height: 5.5rem;
+  /* Each panel beside the text gets room for a caption and a few lines. */
+  min-height: max(5.5rem, calc(var(--layer-count, 1) * 6.5rem));
 }
 
 /* With the side hidden for the whole document, the text takes the full width;
@@ -2232,11 +2233,23 @@ body.resizing {
   background: color-mix(in srgb, var(--surface) 55%, var(--bg));
 }
 
-.section-secondary > .cell-frame {
+.section-secondary > .cell-stack {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Each layer the view shows beside the primary one: a panel that shares the row's height. */
+.cell-stack > .cell-frame {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-stack > .cell-frame + .cell-frame {
+  border-top: 1px dashed var(--border);
 }
 
 .section-secondary .cell-body {
@@ -2351,6 +2364,109 @@ body.resizing {
   opacity: 1;
 }
 
+.section-collapse {
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.section-row:hover .section-collapse,
+.section-row.collapsed .section-collapse,
+.section-collapse:focus-visible {
+  opacity: 1;
+}
+
+/* Collapsed to its name: one line, the width of the page. */
+.section-row.collapsed,
+.section-grid.secondary-off .section-row.collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  min-height: 0;
+}
+
+.section-row.collapsed .section-name-line {
+  padding-bottom: 12px;
+}
+
+.section-row.collapsed .section-name {
+  font-size: 1.05em;
+  color: var(--muted);
+}
+
+.section-grid-left-out {
+  margin: 18px auto 0;
+  max-width: var(--text-width);
+  padding: 0 24px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* One section on a page of its own: its layers one under another, each as tall as its text. */
+.section-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px auto 18px;
+  max-width: var(--text-width);
+  padding: 0 24px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.section-page-nav .link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.section-page-count {
+  flex: 1;
+  text-align: right;
+}
+
+.page-mode .section-row,
+.page-mode .section-row.secondary-hidden {
+  grid-template-columns: minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-mode .section-secondary {
+  position: static;
+  border-left: 0;
+  background: none;
+}
+
+.page-mode .section-secondary > .cell-stack {
+  position: static;
+}
+
+.page-mode .cell-stack > .cell-frame {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+}
+
+.page-mode .section-secondary .cell-body {
+  overflow: visible;
+}
+
+.page-mode .has-name-line .section-secondary {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.page-mode .section-name-line {
+  padding-bottom: 6px;
+}
+
+.page-mode .cell-caption {
+  padding-top: 12px;
+  font-size: 12px;
+}
+
 .cell-hide,
 .section-show {
   color: var(--muted);
@@ -2416,8 +2532,12 @@ body.resizing {
     border-top: 1px dashed var(--border);
   }
 
-  .section-secondary > .cell-frame {
+  .section-secondary > .cell-stack {
     position: static;
+  }
+
+  .cell-stack > .cell-frame {
+    flex: none;
   }
 
   .section-secondary .cell-body {
@@ -2438,4 +2558,97 @@ body.resizing {
   .cell-caption {
     padding-left: 16px;
   }
+}
+
+/* The stacked layout: the same as a narrow page, chosen in the view rather than by the width. */
+.layout-stacked .section-row,
+.layout-stacked .section-row.secondary-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.layout-stacked .section-row.sized {
+  height: auto;
+}
+
+.layout-stacked .section-row.sized .section-primary .cell-body {
+  max-height: var(--row-height);
+}
+
+.layout-stacked .section-secondary {
+  position: static;
+  border-left: 0;
+  border-top: 1px dashed var(--border);
+}
+
+.layout-stacked .section-secondary > .cell-stack {
+  position: static;
+}
+
+.layout-stacked .cell-stack > .cell-frame {
+  flex: none;
+}
+
+.layout-stacked .section-secondary .cell-body {
+  max-height: var(--row-height, max(7rem, var(--fit-height, 12rem)));
+}
+
+.layout-stacked .has-name-line .section-secondary {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+/* A view filtered or with sections hidden: the Views button says so. */
+.tool-button-flag {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Saving a view, filtering sections, managing layers. */
+.view-dialog {
+  width: min(520px, 100%);
+}
+
+.view-dialog-field {
+  display: grid;
+  gap: 4px;
+}
+
+.view-filter-row,
+.layers-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.view-filter-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.layers-list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.layers-row .layers-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.layers-row-fixed .layers-name {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-weight: 600;
+}
+
+.layers-row input[aria-invalid='true'] {
+  border-color: var(--danger, #b3412f);
+}
+
+.layers-add {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }

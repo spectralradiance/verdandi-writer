@@ -5,9 +5,10 @@ import path from 'node:path'
 import type { TextDocument, TextFormat, WriteRequest, WriteResult } from '../shared/ipc'
 import {
   assembleSection, convertOneFile, type DisassembledSection, disassembleDocument, fileNameFor, INTRODUCTION,
-  joinFrontmatter, newDocumentNote, newSectionId, NOTES_LAYER, parseDocumentNote, parseSectionFile, type SectionFile, setFields,
-  stableId, tidySectionText, uniqueName, writeDocumentNote, writeSectionFile,
+  joinFrontmatter, type Layer, type LayerChange, layerNameError, LAYER_KINDS, newDocumentNote, newSectionId, NOTES_LAYER, parseDocumentNote, parseSectionFile, type SectionFile, setFields,
+  removeLayerBlocks, renameLayerBlocks, sectionFields, stableId, tidySectionText, uniqueName, writeDocumentNote, writeSectionFile,
 } from '../shared/layers'
+import { normalizeView, parseViews, type SavedView, VIEWS_FILE, writeViews } from '../shared/views'
 import { sectionMarkerLine } from '../shared/text'
 import { type BackupStore, documentNoteOf, readTextDocument, writeTextDocument } from './fileService'
 import { encodeText } from './textFile'
@@ -41,6 +42,7 @@ interface LoadedSection {
 interface LoadedFolder {
   folder: string
   note: TextDocument
+  declared: Layer[]
   layers: string[]
   sections: LoadedSection[]
   /** Stands in for an mtime: changes whenever any of the document's files does. */
@@ -95,6 +97,7 @@ async function loadFolder(folder: string): Promise<LoadedFolder> {
   return {
     folder,
     note,
+    declared: parsed.layers,
     layers,
     sections,
     token: tokenOf(stamps.map((stamp) => `${stamp.file}:${stamp.mtime}`)),
@@ -106,7 +109,10 @@ async function loadFolder(folder: string): Promise<LoadedFolder> {
 /** A document folder as one text, for the editor. */
 export async function readFolderDocument(folder: string): Promise<TextDocument> {
   const loaded = await loadFolder(folder)
-  return { path: folder, text: loaded.text, format: loaded.note.format, mtimeMs: loaded.token, size: loaded.size, folder: true }
+  return {
+    path: folder, text: loaded.text, format: loaded.note.format, mtimeMs: loaded.token, size: loaded.size, folder: true, layers: loaded.declared,
+    fields: Object.fromEntries(loaded.sections.map((section) => [section.id, sectionFields(section.parsed.yaml)])),
+  }
 }
 
 /** Reads a document: a text file, or a document folder as one text. */
@@ -152,7 +158,7 @@ export async function writeFolderDocument(
   if (!request.force && request.expectedMtimeMs !== current.token) {
     return { ok: false, reason: 'conflict', diskMtimeMs: current.token }
   }
-  const wanted = disassembleDocument(request.text)
+  const wanted = disassembleDocument(request.text, current.layers)
   const byId = new Map(current.sections.map((section) => [section.id, section]))
 
   // Ids: a section keeps its file; a copied marker or a new section gets an id of its
@@ -248,6 +254,96 @@ function withIds(text: string, planned: readonly Planned[]): string {
   }
   if (preamble !== null) lines.unshift(preamble)
   return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Layers and views
+
+/**
+ * Changes the document's layers. Adding one only declares it (an empty layer is not
+ * written); renaming rewrites its callouts in every section file that has any;
+ * deleting removes them. The section files go first and the document note last, so
+ * an interrupted change leaves blocks that are still declared or plain callouts, and
+ * never loses text.
+ */
+export async function changeLayers(folder: string, change: LayerChange, backups: BackupStore): Promise<void> {
+  const current = await loadFolder(folder)
+  let next = current.declared
+  let rewrite: ((text: string) => string) | null = null
+  const find = (name: unknown) => {
+    const layer = typeof name === 'string' ? next.find((candidate) => candidate.name === name) : undefined
+    if (!layer) throw new Error(`The document has no layer called “${String(name)}”.`)
+    return layer
+  }
+  if ('add' in change) {
+    const name = String(change.add?.name ?? '').trim().toLowerCase()
+    const error = layerNameError(name, next)
+    if (error) throw new Error(error)
+    const kind = LAYER_KINDS.includes(change.add.kind) ? change.add.kind : 'prose'
+    next = [...next, { name, kind, anchored: change.add.anchored === true }]
+  } else if ('rename' in change) {
+    const layer = find(change.rename)
+    const to = String(change.to ?? '').trim().toLowerCase()
+    if (to === layer.name) return
+    const error = layerNameError(to, next, layer.name)
+    if (error) throw new Error(error)
+    next = next.map((candidate) => (candidate === layer ? { ...candidate, name: to } : candidate))
+    rewrite = (text) => renameLayerBlocks(text, current.layers, layer.name, to)
+  } else if ('remove' in change) {
+    const layer = find(change.remove)
+    next = next.filter((candidate) => candidate !== layer)
+    rewrite = (text) => removeLayerBlocks(text, current.layers, layer.name)
+  } else if ('change' in change) {
+    const layer = find(change.change)
+    const kind = change.kind && LAYER_KINDS.includes(change.kind) ? change.kind : layer.kind
+    next = next.map((candidate) => (candidate === layer ? { ...candidate, kind, anchored: change.anchored ?? candidate.anchored } : candidate))
+  } else {
+    throw new TypeError('Unknown layer change.')
+  }
+  const names = next.map((layer) => layer.name)
+  if (rewrite) {
+    for (const section of current.sections) {
+      const text = rewrite(section.parsed.text)
+      if (text === section.parsed.text) continue
+      const content = writeSectionFile({ yaml: section.parsed.yaml, text }, names)
+      const result = await writeTextDocument(section.file, { path: section.file, text: content, format: section.format, expectedMtimeMs: null, force: true }, backups)
+      if (!result.ok) throw new Error(`Couldn’t write ${section.base}.md.`)
+    }
+  }
+  const note = writeDocumentNote(current.note.text, { layers: next })
+  if (note !== current.note.text) {
+    const result = await writeTextDocument(current.note.path, { path: current.note.path, text: note, format: current.note.format, expectedMtimeMs: null, force: true }, backups)
+    if (!result.ok) throw new Error(`Couldn’t write ${path.basename(current.note.path)}.`)
+  }
+}
+
+const viewsFile = (folder: string) => path.join(folder, '.verdandi', VIEWS_FILE)
+
+/** A document folder's saved views; none when it has no `views.yaml`. */
+export async function readViews(folder: string): Promise<SavedView[]> {
+  const { layers } = await loadFolder(folder)
+  const text = await readFile(viewsFile(folder), 'utf8').catch(() => null)
+  return text === null ? [] : parseViews(text, layers)
+}
+
+/** Writes a document folder's saved views; with none left, the file goes. */
+export async function saveViews(folder: string, views: unknown): Promise<void> {
+  if (!Array.isArray(views)) throw new TypeError('views must be a list')
+  const { layers } = await loadFolder(folder)
+  const clean: SavedView[] = []
+  for (const view of views) {
+    const name = view && typeof view === 'object' && typeof (view as { name?: unknown }).name === 'string' ? (view as { name: string }).name.trim() : ''
+    if (name && !clean.some((saved) => saved.name === name)) clean.push({ name, ...normalizeView(view, layers) })
+  }
+  const file = viewsFile(folder)
+  if (clean.length === 0) {
+    await rm(file, { force: true })
+    return
+  }
+  await mkdir(path.dirname(file), { recursive: true })
+  const temporary = `${file}.${randomBytes(4).toString('hex')}.tmp`
+  await writeFile(temporary, writeViews(clean), 'utf8')
+  await rename(temporary, file)
 }
 
 // ---------------------------------------------------------------------------

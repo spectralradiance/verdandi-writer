@@ -1,14 +1,14 @@
 // A single-file document: sections are split by headings, and each section can
 // hold notes (`::: notes` blocks, see notes.ts) alongside its output text.
 
-import { classifyLines, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from './notes'
+import { classifyLines, type LayerNames, NOTES_CLOSE_LINE, NOTES_OPEN_LINE } from './notes'
 import { countWords, extractHeadings, extractSectionMarkers, type Heading, splitsAtMarkersOnly } from './text'
 
 /** A section without its text, for outlines. */
 export type SectionSummary = Pick<DocSection, 'title' | 'named' | 'heading' | 'level' | 'line' | 'endLine' | 'hasText' | 'outputWords' | 'notesWords' | 'headings'>
 
-export function summarizeSections(text: string): SectionSummary[] {
-  return splitSections(text).map(({ title, named, heading, level, line, endLine, hasText, outputWords, notesWords, headings }) => (
+export function summarizeSections(text: string, layers?: LayerNames): SectionSummary[] {
+  return splitSections(text, layers).map(({ title, named, heading, level, line, endLine, hasText, outputWords, notesWords, headings }) => (
     { title, named, heading, level, line, endLine, hasText, outputWords, notesWords, headings }
   ))
 }
@@ -25,8 +25,9 @@ export interface DocSection {
   line: number
   /** 1-based last line of the section, inclusive. */
   endLine: number
-  /** The section's text, without its heading and notes. */
+  /** The section's text, without its heading and layer blocks. */
   output: string
+  /** The contents of its layer blocks (its notes, in a one-file document). */
   notes: string
   /** Whether there is any text under the heading (besides notes). */
   hasText: boolean
@@ -52,11 +53,11 @@ const joinLines = (lines: string[]) => lines.join('\n').replace(/^\n+|\s+$/g, ''
  * Where sections start: section markers, and headings at the section level that do
  * not sit right under a marker. In a folder document (markers with ids), markers only.
  */
-export function sectionStarts(text: string): { line: number; title: string; named: boolean; heading: boolean }[] {
+export function sectionStarts(text: string, layers?: LayerNames): { line: number; title: string; named: boolean; heading: boolean }[] {
   const lines = text.split('\n')
-  const headings = extractHeadings(text)
+  const headings = extractHeadings(text, layers)
   const level = sectionLevel(headings)
-  const markers = extractSectionMarkers(text)
+  const markers = extractSectionMarkers(text, layers)
   const named = markers.map((marker) => ({ line: marker.line, title: marker.name, named: true, heading: marker.heading }))
   if (splitsAtMarkersOnly(markers)) return named
   const markerLines = new Set(markers.map((marker) => marker.line))
@@ -77,12 +78,12 @@ export function sectionStarts(text: string): { line: number; title: string; name
  * Splits a document into sections at its headings and section markers. Headings
  * and markers inside notes never split.
  */
-export function splitSections(text: string): DocSection[] {
+export function splitSections(text: string, layers?: LayerNames): DocSection[] {
   const lines = text.split('\n')
-  const roles = classifyLines(lines)
-  const headings = extractHeadings(text)
+  const roles = classifyLines(lines, layers)
+  const headings = extractHeadings(text, layers)
   const level = sectionLevel(headings)
-  const starts = sectionStarts(text)
+  const starts = sectionStarts(text, layers)
 
   const sections: DocSection[] = []
   const build = (title: string | null, named: boolean, heading: boolean, headingLine: number, from: number, to: number): DocSection => {
@@ -128,9 +129,9 @@ export function splitSections(text: string): DocSection[] {
 }
 
 /** Words split into output and notes, for counts and daily statistics. */
-export function splitWordCounts(text: string): { output: number; notes: number } {
+export function splitWordCounts(text: string, layers?: LayerNames): { output: number; notes: number } {
   const lines = text.split('\n')
-  const roles = classifyLines(lines)
+  const roles = classifyLines(lines, layers)
   const output: string[] = []
   const notes: string[] = []
   lines.forEach((line, index) => {
@@ -190,10 +191,10 @@ export function planNotes(text: string, line: number): NotesPlan {
  * Replaces the output of one section, keeping its heading and its notes blocks.
  * Returns the whole text, or null when the index is out of range.
  */
-export function replaceSectionOutput(text: string, index: number, output: string): string | null {
+export function replaceSectionOutput(text: string, index: number, output: string, layers?: LayerNames): string | null {
   const lines = text.split('\n')
-  const roles = classifyLines(lines)
-  const section = splitSections(text)[index]
+  const roles = classifyLines(lines, layers)
+  const section = splitSections(text, layers)[index]
   if (!section) return null
   const from = Math.max(section.line, 1) - 1
   const heading = section.title === null ? [] : [lines[from]]
@@ -241,8 +242,8 @@ export function demoteHeadings(text: string, minimum: number): string {
  * so any text before the first heading stays put) to the position of the `to`th,
  * taking its notes and sub-headings with it. Returns null when nothing would change.
  */
-export function moveSectionText(text: string, from: number, to: number): string | null {
-  const sections = splitSections(text).filter((section) => section.title !== null)
+export function moveSectionText(text: string, from: number, to: number, layers?: LayerNames): string | null {
+  const sections = splitSections(text, layers).filter((section) => section.title !== null)
   if (from === to || from < 0 || to < 0 || from >= sections.length || to >= sections.length) return null
   const lines = text.split('\n')
   const head = lines.slice(0, sections[0].line - 1)

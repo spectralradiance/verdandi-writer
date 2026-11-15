@@ -4,14 +4,17 @@ import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
-import { looksLikeVerdandiDocument } from '../../shared/layers'
+import { type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER } from '../../shared/layers'
+import type { DocumentView, SavedView } from '../../shared/views'
+import { loadView, storeView } from './documentView'
 import { extractHeadings, type Heading } from '../../shared/text'
 import { onDiskChange, touchesFile } from './changes'
 import type { MarkdownEditorHandle, WordInContext } from './editor/MarkdownEditor'
 import { SectionGrid } from './editor/SectionGrid'
-import type { CellKind } from './editor/sectionModel'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
+import { ViewControls } from './ViewControls'
+import { FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
 import { History, X } from 'lucide-react'
 
 const AUTOSAVE_DELAY_MS = 1200
@@ -67,6 +70,8 @@ export interface DocumentPaneHandle {
    */
   proposeEdit(oldText: string, newText: string, label: string, snapshot: boolean): { count: number } | { error: string }
   openHistory(): void
+  /** The document's layer names for the classifier (null for a one-file document's notes). */
+  layerNames(): string[] | null
 }
 
 interface DocumentPaneProps {
@@ -74,10 +79,6 @@ interface DocumentPaneProps {
   path: string
   live: boolean
   focusMode: boolean
-  /** Which side of each section comes first: the text or the notes. */
-  primary: CellKind
-  /** Show the other side of every section (each section can override it). */
-  secondaryShown: boolean
   headerActions?: ReactNode
   onInfo: (info: DocumentInfo | null) => void
   onHeadings?: (headings: Heading[]) => void
@@ -114,7 +115,7 @@ interface DiskState {
 }
 
 export function DocumentPane({
-  ref, path, live, focusMode, primary, secondaryShown, headerActions,
+  ref, path, live, focusMode, headerActions,
   onInfo, onHeadings, onSections, onDirtyChange, onFocus, onSelectWord, onClose, keepAsFile = false, onConverted,
 }: DocumentPaneProps) {
   const [loaded, setLoaded] = useState<{ document: TextDocument; generation: number } | null>(null)
@@ -125,6 +126,14 @@ export function DocumentPane({
   const [exists, setExists] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [converting, setConverting] = useState(false)
+  const [view, setView] = useState<DocumentView | null>(null)
+  const [savedViews, setSavedViews] = useState<SavedView[]>([])
+  const [activeView, setActiveView] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
+  const [layerBusy, setLayerBusy] = useState(false)
+  const [layerError, setLayerError] = useState<string | null>(null)
+  /** The layer names the text's blocks use (null: a one-file document, notes only). */
+  const layerNames = useRef<string[] | null>(null)
 
   const editor = useRef<MarkdownEditorHandle>(null)
   const disk = useRef<DiskState | null>(null)
@@ -150,10 +159,10 @@ export function DocumentPane({
   }, [])
 
   const reportStats = useCallback((text: string, format: TextFormat) => {
-    const counts = splitWordCounts(text)
+    const counts = splitWordCounts(text, layerNames.current)
     parent.current.onInfo({ words: counts.output, notesWords: counts.notes, format })
-    parent.current.onHeadings?.(extractHeadings(text))
-    parent.current.onSections?.(summarizeSections(text))
+    parent.current.onHeadings?.(extractHeadings(text, layerNames.current))
+    parent.current.onSections?.(summarizeSections(text, layerNames.current))
   }, [])
 
   const convert = useCallback(async () => {
@@ -169,6 +178,9 @@ export function DocumentPane({
 
   const applyDocument = useCallback((document: TextDocument) => {
     disk.current = { mtimeMs: document.mtimeMs, format: document.format }
+    layerNames.current = document.layers ? document.layers.map((layer) => layer.name) : null
+    setView(loadView(path, (document.layers ?? [NOTES_LAYER]).map((layer) => layer.name)))
+    if (document.folder) void window.verdandi.documents.readViews(path).then(setSavedViews, () => setSavedViews([]))
     version.current = 0
     savedVersion.current = 0
     setExists(document.mtimeMs !== null)
@@ -179,7 +191,7 @@ export function DocumentPane({
     reportStats(document.text, document.format)
     // A one-file Verdandi document becomes a document folder as soon as it opens.
     if (modeOf(document, keepAsFile) === 'convert') void convert()
-  }, [reportStats, updateState, keepAsFile, convert])
+  }, [reportStats, updateState, keepAsFile, convert, path])
 
   const load = useCallback(() => window.verdandi.files.read(path).then(
     applyDocument,
@@ -243,7 +255,7 @@ export function DocumentPane({
         if (result.notice) setNotice(result.notice)
         // A document folder gave new sections ids: the editor takes them unless typing went on meanwhile.
         if (result.text !== undefined && editor.current?.getText() === text) editor.current.sync(result.text)
-        const counts = splitWordCounts(text)
+        const counts = splitWordCounts(text, layerNames.current)
         parent.current.onInfo({ words: counts.output, notesWords: counts.notes, format: result.format })
         if (version.current === target) {
           updateState('saved')
@@ -285,7 +297,7 @@ export function DocumentPane({
     currentSection: () => {
       const handle = editor.current
       if (!handle) return null
-      const sections = splitSections(handle.getText())
+      const sections = splitSections(handle.getText(), layerNames.current)
       const index = sectionAtLine(sections, handle.cursorLine())
       const section = sections[index]
       return section ? { index, title: section.title, output: section.output, notes: section.notes } : null
@@ -294,7 +306,7 @@ export function DocumentPane({
       const handle = editor.current
       if (!handle) return null
       const current = handle.getText()
-      const next = replaceSectionOutput(current, index, text)
+      const next = replaceSectionOutput(current, index, text, layerNames.current)
       if (next === null) return null
       const count = handle.propose(next, label)
       if (count > 0) saveRestorePoint(current, label)
@@ -317,6 +329,7 @@ export function DocumentPane({
       return { count }
     },
     openHistory: () => setHistoryOpen(true),
+    layerNames: () => layerNames.current,
   }), [save, saveRestorePoint])
 
   useEffect(() => {
@@ -347,6 +360,57 @@ export function DocumentPane({
 
   const mode = loaded ? modeOf(loaded.document, keepAsFile) : null
 
+  const changeView = useCallback((change: (current: DocumentView) => DocumentView) => {
+    setView((current) => {
+      if (!current) return current
+      const next = change(current)
+      if (next !== current) storeView(path, next)
+      return next
+    })
+  }, [path])
+
+  const storeSaved = (next: SavedView[]) => {
+    setSavedViews(next)
+    void window.verdandi.documents.saveViews(path, next).catch((error: unknown) => setNotice(`The views couldn’t be saved: ${errorMessage(error)}`))
+  }
+
+  /** Makes one change to the document's layers: saves first, then reloads the document with them. */
+  const changeLayers = async (change: LayerChange, label: string) => {
+    const handle = editor.current
+    if (!handle) return
+    if ('remove' in change) {
+      const text = handle.getText()
+      if (layerHasContent(text, layerNames.current ?? [], change.remove)) {
+        if (!window.confirm(`Delete the ${change.remove} layer and everything written in it, in every section? An earlier version is kept in History.`)) return
+        void window.verdandi.history.snapshot(path, text, `Before deleting the ${change.remove} layer`).catch(() => {})
+      }
+    }
+    setLayerBusy(true)
+    setLayerError(null)
+    try {
+      if (!(await save())) throw new Error('your edits could not be saved first')
+      await window.verdandi.documents.changeLayers(path, change)
+      // The view and the saved views follow a renamed or deleted layer.
+      const follow = (current: DocumentView): DocumentView => {
+        const map = (kind: string): string | null => ('rename' in change && kind === change.rename ? change.to : 'remove' in change && kind === change.remove ? null : kind)
+        const shown = current.shown.map(map).filter((kind): kind is string => kind !== null)
+        return { ...current, primary: map(current.primary) ?? 'output', shown }
+      }
+      if ('rename' in change || 'remove' in change) {
+        if (view) storeView(path, follow(view))
+        if (savedViews.length) storeSaved(savedViews.map((saved) => ({ ...saved, ...follow(saved) })))
+      } else if ('add' in change && view) {
+        storeView(path, { ...view, shown: view.shown.length ? [...view.shown, change.add.name] : view.shown })
+      }
+      setNotice(`${label}.`)
+      await load()
+    } catch (error) {
+      setLayerError(`Couldn’t change the layers: ${errorMessage(error)}`)
+    } finally {
+      setLayerBusy(false)
+    }
+  }
+
   const fileName = folderName(path)
 
   if (loadError) {
@@ -375,8 +439,65 @@ export function DocumentPane({
         {exists && (
           <button type="button" className="icon-button history-button" onClick={() => setHistoryOpen(true)} title="History: earlier versions of this file" aria-label="History"><History size={14} aria-hidden="true" /></button>
         )}
+        {loaded && view && mode !== 'convert' && (
+          <ViewControls
+            layers={loaded.document.layers ?? [NOTES_LAYER]}
+            view={view}
+            onView={changeView}
+            saved={loaded.document.folder ? savedViews : null}
+            activeName={activeView}
+            onApply={(saved) => {
+              setActiveView(saved.name)
+              // The name rides along harmlessly; a view read back from preferences drops it.
+              changeView(() => ({ ...saved }))
+            }}
+            onSaveAs={() => setDialog('save')}
+            onUpdate={(name) => storeSaved(savedViews.map((saved) => (saved.name === name ? { ...view, name } : saved)))}
+            onDelete={(name) => {
+              if (!window.confirm(`Delete the saved view “${name}”?`)) return
+              storeSaved(savedViews.filter((saved) => saved.name !== name))
+              setActiveView(null)
+            }}
+            onFilter={() => setDialog('filter')}
+            onManageLayers={loaded.document.folder ? () => setDialog('layers') : undefined}
+          />
+        )}
         {headerActions}
       </header>
+      {dialog === 'save' && view && (
+        <SaveViewDialog
+          taken={savedViews.map((saved) => saved.name)}
+          onClose={() => setDialog(null)}
+          onSave={(name) => {
+            storeSaved([...savedViews.filter((saved) => saved.name !== name), { ...view, name }])
+            setActiveView(name)
+            setDialog(null)
+          }}
+        />
+      )}
+      {dialog === 'filter' && view && (
+        <FilterDialog
+          fields={loaded?.document.fields ?? {}}
+          filter={view.filter}
+          onClose={() => setDialog(null)}
+          onApply={(filter) => {
+            changeView((current) => ({ ...current, filter, page: null }))
+            setDialog(null)
+          }}
+        />
+      )}
+      {dialog === 'layers' && loaded?.document.layers && (
+        <LayersDialog
+          layers={loaded.document.layers as Layer[]}
+          busy={layerBusy}
+          error={layerError}
+          onChange={(change, label) => void changeLayers(change, label)}
+          onClose={() => {
+            setDialog(null)
+            setLayerError(null)
+          }}
+        />
+      )}
       {historyOpen && (
         <HistoryDialog
           path={path}
@@ -417,7 +538,7 @@ export function DocumentPane({
         </div>
       )}
 
-      {loaded && mode !== 'convert' ? (
+      {loaded && view && mode !== 'convert' ? (
         <SectionGrid
           key={loaded.generation}
           readOnly={mode === 'read'}
@@ -427,8 +548,11 @@ export function DocumentPane({
           initialText={loaded.document.text}
           live={live}
           focusMode={focusMode}
-          primary={primary}
-          secondaryShown={secondaryShown}
+          layers={loaded.document.layers ?? null}
+          view={view}
+          onViewChange={changeView}
+          fields={loaded.document.fields}
+          onManageLayers={loaded.document.folder && mode === 'edit' ? () => setDialog('layers') : undefined}
           onDocChanged={onDocChanged}
           onSave={() => void save()}
           onBlur={() => void save()}
