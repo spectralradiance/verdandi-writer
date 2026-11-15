@@ -126,7 +126,21 @@ Set up providers under **⚙ AI settings**:
 - **Routing** — the order each task tries models in. **Local / Hybrid / Cloud** filters that list; unavailable models are skipped, and a model that fails before writing anything falls back to the next.
 - **Prompts** — each task's prompt is an editable Markdown file. In `chat.md` the part above `=== user ===` is the system prompt (with `{{document}}`, `{{section}}` and `{{context}}`), and `{{message}}` is the message you type; earlier turns are sent before it. `agent.md` works the same way for agent mode, but keep its system part free of placeholders: it is resent unchanged with every step.
 
-The local model needs PyTorch and the transformers stack: run `.\scripts\setup-sidecar.ps1` without `-NoTorch`. The first local run downloads the model (Qwen 2.5 7B by default, several GB) and needs an NVIDIA GPU; it loads in 4-bit and unloads after 10 idle minutes. While it loads, the chat says so. If transformers or accelerate are missing, the local model shows as unavailable (with what's missing) rather than accepting a request it can't run.
+### The local model
+
+The local model runs on your own NVIDIA GPU, so nothing leaves the computer and nothing is paid per use. It needs PyTorch and the transformers stack: run `.\scripts\setup-sidecar.ps1` without `-NoTorch`. If transformers or accelerate are missing, the local model shows as unavailable, with what's missing, instead of accepting a request it can't run. With bitsandbytes installed (the setup script installs it) the model loads in 4-bit, which takes about a third of the memory; without it, it loads in 16-bit.
+
+**Choosing a model.** The default is Qwen 2.5 7B Instruct. To use another, add a profile under **⚙ AI settings → Models** with the provider **Local model (GPU)** and a Hugging Face model id (or the path of a folder holding one), then put it first under **Routing**. Instruction-tuned chat models work; base models don't. As a rough guide:
+
+| Model | Download | GPU memory (4-bit) | Notes |
+|---|---|---|---|
+| `Qwen/Qwen2.5-3B-Instruct` | about 6 GB | about 3 GB | quick; fine for word choice and short feedback |
+| `Qwen/Qwen2.5-7B-Instruct` (default) | about 15 GB | about 6 GB | the best balance on an 8–16 GB card |
+| `Qwen/Qwen2.5-14B-Instruct` | about 30 GB | about 10 GB | better drafting and analysis, slower; needs 12 GB or more |
+
+A model that doesn't fit entirely on the GPU is refused rather than run slowly on the CPU.
+
+**The first run downloads the model.** It goes into the Hugging Face cache (`%USERPROFILE%\.cache\huggingface\hub`; set `HF_HOME` before starting the app to put it elsewhere), and only the first time. The chat shows how far it has got every few seconds, then how long loading onto the GPU is taking. The download keeps going if you close the chat or start a new one, and a later message picks it up where it is. If the app or the computer stops mid-download, the next run starts that file again; the partial files the stopped download left are removed once the model is complete. After that, loading takes a minute or so, and the model is unloaded after 10 idle minutes to give the GPU memory back.
 
 Every run is logged (task, model, token usage, input hash, output) to `%APPDATA%\Verdandi Writer\ai-history\<month>.jsonl`.
 

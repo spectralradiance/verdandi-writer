@@ -1,7 +1,7 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Columns3, Ellipsis, GripVertical, PanelRightClose, PanelRightOpen, Rows3 } from 'lucide-react'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { moveSectionText } from '../../../shared/document'
 import { suggestEdits } from '../../../shared/diff'
@@ -430,7 +430,9 @@ export function SectionGrid({
       return range.empty && view.moveVertically(range, forward).head === range.head
     }
     // Ctrl+Alt+N goes round the layers shown for the section.
+    // Galleries are skipped: they have no text to put the cursor in.
     const cycle = [primary, ...under, ...(secondaries.length ? secondaries : sideKinds.filter((candidate) => !under.includes(candidate)).slice(0, 1))]
+      .filter((candidate) => candidate === kind || !gallery.includes(candidate))
     const next = cycle[(cycle.indexOf(kind) + 1) % cycle.length] ?? primary
     return [
       { key: 'ArrowDown', run: (view) => atEdge(view, true) && moveBetweenRows(id, kind, 1) },
@@ -444,7 +446,7 @@ export function SectionGrid({
       },
       { key: 'Mod-Alt-s', run: () => splitAtCursor(id, kind) },
     ]
-  }, [moveBetweenRows, withCell, splitAtCursor, primary, under, secondaries, sideKinds])
+  }, [moveBetweenRows, withCell, splitAtCursor, primary, under, secondaries, sideKinds, gallery])
 
   const activeHandle = () => {
     const current = active.current
@@ -743,6 +745,22 @@ export function SectionGrid({
     setFoldedActive(kind)
     changeView((current) => showLayer(current, kind))
   }
+  /**
+   * Arrow keys, Home and End move between a column's tabs, choosing each as they go
+   * (one tab stop per column; Tab moves on to the next column).
+   */
+  const tabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
+    if (at < 0) return
+    const target = event.key === 'ArrowRight' ? (at + 1) % tabs.length
+      : event.key === 'ArrowLeft' ? (at - 1 + tabs.length) % tabs.length
+        : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
+    if (target < 0) return
+    event.preventDefault()
+    tabs[target].focus()
+    tabs[target].click()
+  }
   const hideSide = () => changeView((current) => ({ ...current, sideHidden: true }))
 
   /**
@@ -813,9 +831,10 @@ export function SectionGrid({
                   title="Drag to change the columns’ widths" onPointerDown={startWidthDrag(index + 1)} />
               )}
               {column.mode === 'tabs' ? (
-                <div className="section-bar-tabs" role="tablist" aria-label={`Column ${index + 2}`}>
+                <div className="section-bar-tabs" role="tablist" aria-label={`Column ${index + 2}`} onKeyDown={tabKeys}>
                   {column.layers.map((kind) => (
                     <button key={kind} type="button" role="tab" className="section-tab" aria-selected={showing[index]?.includes(kind) ?? false}
+                      tabIndex={showing[index]?.includes(kind) ? 0 : -1}
                       title={`Show each section’s ${kindLabel(kind).toLowerCase()} in this column`} onClick={() => chooseTab(kind)}>
                       {kindLabel(kind)}
                     </button>
@@ -841,9 +860,9 @@ export function SectionGrid({
             </div>
           )) : offered.length > 0 && (
             <div className="section-bar-column" style={{ '--column': 2 } as CSSProperties}>
-              <div className="section-bar-tabs" role="tablist" aria-label="Show a layer beside each section">
+              <div className="section-bar-tabs" role="tablist" aria-label="Show a layer beside each section" onKeyDown={tabKeys}>
                 {offered.map((kind) => (
-                  <button key={kind} type="button" role="tab" className="section-tab" aria-selected={false}
+                  <button key={kind} type="button" role="tab" className="section-tab" aria-selected={false} tabIndex={kind === offered[0] ? 0 : -1}
                     title={`Show each section’s ${kindLabel(kind).toLowerCase()} beside it`} onClick={() => chooseTab(kind)}>
                     {kindLabel(kind)}
                   </button>

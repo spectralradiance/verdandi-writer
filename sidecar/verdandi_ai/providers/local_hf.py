@@ -15,6 +15,7 @@ from __future__ import annotations
 import gc
 import importlib.util
 import os
+import sys
 import threading
 import time
 from fnmatch import fnmatch
@@ -71,18 +72,56 @@ def cache_folder(name: str) -> str | None:
     return os.path.join(constants.HF_HUB_CACHE, "models--" + name.replace("/", "--"))
 
 
-def downloaded_bytes(name: str) -> int:
+# A partial file untouched for this long was left by a download that stopped.
+STALE_SECONDS = 600.0
+
+
+def _blobs(name: str) -> list[tuple[str, int, float]]:
+    """
+    The files of a model in the cache: path, size and last change. Downloads land in
+    `blobs`, and `snapshots` links to them; where Windows can't make links, the
+    finished files are in `snapshots` themselves, so those count too (links don't).
+    """
     folder = cache_folder(name)
+    found: list[tuple[str, int, float]] = []
     if folder is None:
-        return 0
-    total = 0
-    for root, _dirs, files in os.walk(os.path.join(folder, "blobs")):
-        for file in files:
+        return found
+    for part in ("blobs", "snapshots"):
+        for root, _dirs, files in os.walk(os.path.join(folder, part)):
+            for file in files:
+                path = os.path.join(root, file)
+                try:
+                    if os.path.islink(path):
+                        continue
+                    stat = os.stat(path)
+                except OSError:
+                    continue
+                found.append((path, stat.st_size, stat.st_mtime))
+    return found
+
+
+def downloaded_bytes(name: str, now: float | None = None) -> int:
+    """Bytes of the model on disk: finished files, and partial ones still being written."""
+    now = time.time() if now is None else now
+    return sum(size for path, size, changed in _blobs(name) if not (path.endswith(".incomplete") and now - changed > STALE_SECONDS))
+
+
+def clear_stale_partials(name: str, now: float | None = None) -> int:
+    """
+    Removes the partial files a stopped download left in the model's cache folder (a
+    new download starts its own), and returns the bytes freed. One still being
+    written, by this or another process, is newer than STALE_SECONDS and stays.
+    """
+    now = time.time() if now is None else now
+    freed = 0
+    for path, size, changed in _blobs(name):
+        if path.endswith(".incomplete") and now - changed > STALE_SECONDS:
             try:
-                total += os.path.getsize(os.path.join(root, file))
+                os.remove(path)
+                freed += size
             except OSError:
                 pass
-    return total
+    return freed
 
 
 def download_model(name: str, job: Job) -> None:
@@ -105,6 +144,11 @@ def download_model(name: str, job: Job) -> None:
             snapshot_download(name, allow_patterns=list(DOWNLOAD_PATTERNS), local_files_only=True)
         except Exception:
             raise ProviderError("unavailable", f"Couldn't download {name}: {error}") from error
+    # The model is all here: what earlier, stopped downloads left behind is only taking space.
+    freed = clear_stale_partials(name)
+    if freed:
+        # To the AI server's log (Settings), so the space it gave back is accounted for.
+        print(f"Removed {freed / GB:.1f} GB of partial files a stopped download of {name} left behind", file=sys.stderr, flush=True)
 
 
 class LocalHFProvider:
@@ -196,6 +240,8 @@ class LocalHFProvider:
     @staticmethod
     def _download_message(name: str, job: Job) -> str:
         done = downloaded_bytes(name)
+        if job.total and done >= job.total:
+            return f"Checking {name} is up to date…"
         if job.total:
             share = min(1.0, done / job.total)
             return f"Downloading {name}: {done / GB:.1f} of {job.total / GB:.1f} GB ({share:.0%}). Only the first time."
