@@ -7,6 +7,7 @@ Verdandi is one of three Norn apps: **Urdr Reader** is for reading (highlights f
 - `app/`: Electron + React + TypeScript desktop app
 - `sidecar/`: Python FastAPI server for AI and GPU work, launched by the app
 - `scripts/`: setup and dev helpers
+- `docs/FORMAT.md`: the document format (one file per layer, sections as headings), for converting Markdown you already have
 
 ## Setup (Windows, PowerShell)
 
