@@ -150,7 +150,7 @@ The lexicon and prompt templates live in the folders named in the workspace file
 
 ## 3b. Sections and layers (planned 2026-11-14, Phase 8)
 
-When Phase 8 is built, it replaces the one-file document format in §3. A document becomes a collection of sections, more like a CMS. Each section holds **layers**: its text, notes, outline, images, and any other layers the document defines. The files stay plain Markdown that Obsidian can open and edit; a workspace root can be an Obsidian vault.
+*To be replaced by §3c, layer files (decided 2026-11-23).* When Phase 8 is built, it replaces the one-file document format in §3. A document becomes a collection of sections, more like a CMS. Each section holds **layers**: its text, notes, outline, images, and any other layers the document defines. The files stay plain Markdown that Obsidian can open and edit; a workspace root can be an Obsidian vault.
 
 **Shape:** a vault (workspace root) → a document (a folder) → a section (one `.md` file) → layers (parts of that file).
 
@@ -243,6 +243,129 @@ More text.
 - **Exports** still compile the whole document into one file, in the order the document note gives.
 
 **Risk:** Obsidian, or a sync tool, editing section files while Verdandi has them open. One file per section keeps a conflict to one section, but the watcher and merge prompt (§3) have to work across a document's folder from the start.
+
+## 3c. Layer files (planned 2026-11-23, Phase 9)
+
+When Phase 9 is built, it replaces the folder of section files in §3b. Each **layer** becomes one file, and **sections are headings**, written the same way in every file. Below, "the text" is the layer called `output` in the code.
+
+**Why:**
+- **The text file is the manuscript.** It reads straight through in Obsidian or any editor, with no callouts in it.
+- **Each other layer reads as one document:** the notes, the outline, the research.
+- **Fewer files:** a 40-chapter novel with four layers is five files, not 41.
+- **Plain Markdown:** an existing Markdown file becomes a document by adding a few lines of frontmatter.
+- **It matches the view:** the columns on screen are layers (see Arrange view).
+
+**What it gives up:**
+- **Notes anchored to a paragraph:** a note belongs to its section as a whole. Anchored notes in existing documents are kept in the order they came, at the end of their section's notes.
+- **Section fields per file:** they move into the main file's frontmatter.
+
+**Shape:**
+
+```
+Salt and Signal/
+  Salt and Signal.md            ← the main file: the frontmatter, then the text
+  Salt and Signal - Notes.md    ← one file per other layer
+  Salt and Signal - Outline.md
+  Salt and Signal - Research.md
+  Salt and Signal - Images.md
+  attachments/lighthouse.svg
+  .verdandi/views.yaml          ← saved views (Obsidian hides dot-folders)
+```
+
+- **The main file** is the document. It shows in the sidebar; its layer files are grouped under it and don't show as documents of their own.
+- **A layer file** is named after the document and the layer by default (`<Document> - <Layer>.md`). That keeps names unique across a vault, so Obsidian links never become ambiguous. Any other name can be given in the frontmatter.
+- **The folder** is optional. New documents get one, since it holds `attachments/` and `.verdandi/`, but a main file with its layer files beside it works anywhere. When two documents share a folder, their saved views are kept apart by document name.
+
+**The main file:**
+
+```markdown
+---
+verdandi: document
+section-level: 2
+layers:
+  - {name: notes, kind: prose}
+  - {name: outline, kind: list}
+  - {name: research, kind: prose, file: Salt and Signal - Research.md}
+  - {name: images, kind: gallery}
+sections:
+  The Last Lamp: {status: revised, pov: Maren, tags: [act-1, island]}
+  Interlude: {heading: false}
+---
+# Salt and Signal
+
+## The Last Lamp
+
+The lamp at Skerrow had been lit every night…
+
+## Paraffin and Prayer
+
+Tobias Vale had not prayed since his wife died…
+```
+
+- **`section-level`** is the heading level that starts a section; the default is 2.
+  - A heading at that level starts a section. Deeper headings stay inside their section's text.
+  - A `#` heading above the first section is the document's title.
+  - A document whose chapters are `#` headings sets `section-level: 1`; its title is then the file name.
+- **`layers`** declares the other layers, as in §3b: a name, a kind (prose, list or gallery), and optionally `file`.
+- **`sections`** holds each section's fields, keyed by its heading: status, tags and anything else, which is what saved views filter on.
+  - **`heading: false`** marks a section whose heading is left out of exports. Its text runs on from the section before, so a scene inside a chapter can still be its own section in Verdandi. This replaces `<!-- section: Name -->` markers.
+  - **A section with no fields** needs no entry.
+- **Text before the first section** belongs to the document as a whole, as it does now.
+
+**A layer file:**
+
+```markdown
+Notes on the whole book, before the first section.
+
+## The Last Lamp
+
+Open on the lamp, not on Maren. Let the reader meet the light first.
+Tobias never reads anything twice unless it frightens him. Plant this.
+
+## Static
+
+Ilse's chapters are short. She is the reader's ear on the mainland.
+```
+
+- **The same heading level** starts sections, with the same names as in the main file. A deeper heading inside a section is part of that layer's content.
+- **A section with nothing in a layer is left out of that file**, so a sparse layer doesn't fill with empty headings. The app still shows the layer for every section.
+- **Kinds:**
+  - **List layers** hold a Markdown list under each heading.
+  - **Gallery layers** hold image embeds (`![[lighthouse.svg|The tower]]`), with any caption lines kept as text.
+
+**Keeping the files in step:**
+- **Section names are unique** within a document. A heading typed in Verdandi that is already used gets a suffix ("Interlude (2)"), with a notice.
+- **The main file decides the order.** Saving rewrites each layer file whose content or order changed, putting its sections in the main file's order. A file that hasn't changed is never rewritten.
+- **Renaming a section** in Verdandi renames its heading in every file, and its key under `sections`.
+- **Split, merge, move and delete** change every file the section is in. Every file involved is snapshotted in History first.
+- **Layers:**
+  - **Adding a layer** declares it; its file is made when it first has content.
+  - **Renaming** a layer renames its file (when it has the default name) and its declaration.
+  - **Deleting** a layer that still has content asks first, takes a History snapshot, and moves its file to the trash.
+
+**Edits made outside Verdandi:**
+- **A heading in a layer file that matches no section** shows in that layer as a **stray section**. It is kept and never deleted. Its menu offers **Attach to section…** (which renames its heading) or **Make it a section** (which adds the heading to the main file).
+- **A rename made in Obsidian:** when one name is missing from the main file and one stray turns up in the same place in a layer, they are paired automatically and the layer's heading is renamed on the next save. More than one at once is left for the writer to attach.
+- **A heading renamed or deleted in the main file** behaves the same way from the layers' side: the layers' sections under the old name become strays until they are attached.
+- **A heading deleted from a layer file** merges what was under it into the section above. That is simply how the Markdown reads; Verdandi says so in a notice, and History and Undo can put it back.
+- **Two sections with the same name** in the main file (typed outside) are read in order and matched to the same-named headings in each layer in order. The app offers to rename the second.
+- **A `sections` key that matches no heading** is kept until the next rename or delete in Verdandi, and listed in Fields… so it can be attached or dropped.
+
+**Inside the app, nothing much changes.** The editor keeps its working text: sections joined with markers, and the other layers as `::: layer` blocks at the end of each section. Only the disk side changes. Reading puts the files together into that text, and saving splits it back into files. Rows, views, search, stats, export, history and AI keep working on the same text.
+
+**Converting:**
+- **Folder documents (§3b)** convert when opened:
+  - The section files become `## Name` sections in the main file.
+  - Each callout layer moves into its layer file.
+  - Fields move into `sections`.
+  - `id`s are dropped, since names now match sections.
+  - The old files go to `.verdandi/converted/`, and a notice offers Undo.
+- **One-file documents** with `::: notes` blocks or section markers convert the same way. Their `#` headings set `section-level: 1`.
+- **Any Markdown file** can be made a document by adding `verdandi: document` to its frontmatter (or with "Make this a document"). Its own headings become the sections. `docs/FORMAT.md` explains the format, for converting files by hand or with a script.
+
+**Risk:**
+- **A single layer file now holds every section,** so an outside edit to `Notes.md` while Verdandi has unsaved notes conflicts across the whole layer. The merge prompt (§3) has to work per file and show which sections differ.
+- **Name matching depends on people not renaming headings in only one file.** The stray-section repair has to be visible and easy, not a silent guess.
 
 ---
 
@@ -425,6 +548,7 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Local model downloads:** progress counts the files where Windows keeps them without links (it read 0% for a model already on disk), says it is checking when the model is all there, and leaves out partial files a stopped download abandoned; once the model is complete, those are removed. The 7B default was checked end to end: loaded and answered in 24 s.
   - **README:** choosing a local model, with download sizes and GPU memory, and how the first download behaves.
 - **Next:**
+  - **Layer files (Phase 9, §3c):** one file per layer, sections as headings. Planned 2026-11-23; `docs/FORMAT.md` describes the format.
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.
@@ -445,6 +569,40 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
 5. **Everything that reads documents:** search, stats, export, AI drafting (which reads a section's layers) and the Urdr import (which lands in the notes layer) move to the new format. So does the folder watcher.
 - **Done when:** an old one-file document opens as a folder of sections that Obsidian reads straight through. A section split or merged in Verdandi, or edited in Obsidian, keeps every layer where it belongs. A saved view filtered on `status: draft` reopens as it was left.
 
+### Phase 9 — Layer files
+Builds the format in §3c: one file per layer, with sections as headings. The editor's working text stays as it is; the disk side changes underneath it.
+
+1. **Model** (`shared/layerFiles.ts`):
+   - Read and write the main file: its frontmatter (`section-level`, `layers`, `sections`), keeping comments and field order, and its sections.
+   - Read and write a layer file: the part before the first section, then its sections.
+   - Match a layer's sections to the main file's by name: strays, the automatic pairing of one rename, duplicate names in order.
+   - Round-trip tests come first: files written by hand, edited in Obsidian, and with headings renamed, deleted or doubled.
+2. **The disk side** (`main/layerDocument.ts`, in place of `main/folderDocument.ts`):
+   - Put the files together into the working text, and split it back on save, writing only the files that changed.
+   - Check every file's token on save, so a change made outside meanwhile is never written over.
+   - Fields go to `sections`, and `heading: false` takes the place of section markers.
+3. **Conversion:**
+   - Folder documents and one-file documents convert on open, with the old files kept in `.verdandi/converted/` and Undo.
+   - "Make this a document" for any other Markdown file.
+   - The samples move to the new format, and `main/samples.test.ts` checks them.
+4. **Sidebar and watcher:**
+   - The sidebar shows a main file as the document and groups its layer files under it.
+   - A change to any of them counts as a change to the document. The merge prompt works per file.
+5. **Operations across files:**
+   - Rename, move, split, merge and delete sections; add, rename and delete layers (and their files).
+   - History snapshots every file involved.
+   - Stray sections show in their layer, with **Attach to section…** and **Make it a section**.
+6. **Everything that reads documents:**
+   - Search indexes the main file and its layer files as one document.
+   - Export uses `heading: false`.
+   - Stats, AI, the outline and style history keep reading the working text.
+   - `docs/FORMAT.md` stays the description of the format.
+- **Done when:**
+  - A Markdown file with `verdandi: document` added opens as a document, with its headings as sections.
+  - A §3b folder document converts and converts back with Undo.
+  - Renaming a heading in one file in Obsidian shows a stray that one click attaches.
+  - Splitting or renaming a section in Verdandi leaves every file readable on its own in Obsidian.
+
 ---
 
 ## 5. Decisions
@@ -461,6 +619,8 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
 - Verdandi's place among the Norn apps (2026-11-13): it receives reading material from Urdr and sends finished work to Skuldr (Phase 6). It does **not** get a built-in browser or feed panel, even a small one, and it does **not** post directly. Packages, app IDs and folders use the name Verdandi (renamed 2026-11-14). The old `%APPDATA%\Ogma` profile moves to `%APPDATA%\Verdandi Writer` on first launch.
 
 - Sections and layers (2026-11-14, Phase 8): a document becomes a folder of section files that Obsidian can open, and each section holds the layers the document declares (§3b). This replaces the one-file decision above once Phase 8 is built. A split moves only the layer it was made from (and the anchored notes inside it), and leaves the others with the original. Old one-file documents convert when opened; other Markdown files are never changed unless asked.
+
+- Layer files (2026-11-23, Phase 9): a document becomes one file per layer instead of one file per section (§3c). The main file holds the text and the frontmatter; each other layer has a file of its own. Sections are headings at one level, matched across files by name, with no hidden ids. Whether a heading shows in exports is a field of the section (`heading: false`). Notes are no longer anchored to a paragraph; they belong to their section.
 
 **Open questions:**
 - **AI on web and mobile:** the sidecar is a local Python process. Without it, cloud calls need either your API keys stored on the device (web storage is weaker than the OS keychain) or a small hosted relay. "Your desktop's model" on a phone needs the desktop sidecar reachable over the network, which today binds to 127.0.0.1 only.
