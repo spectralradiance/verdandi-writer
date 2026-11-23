@@ -75,7 +75,7 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
       label: 'Filter by field…',
       hint: filterEntries.map(([field, value]) => (value ? `${field}: ${value}` : field)).join(', ') || undefined,
       disabled: saved === null,
-      title: saved === null ? 'Fields are in a document folder’s section files' : 'Only the sections whose frontmatter fields match',
+      title: saved === null ? 'Fields are kept in a document folder’s main file' : 'Only the sections whose frontmatter fields match',
       onClick: onFilter,
     },
   )

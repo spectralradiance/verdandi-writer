@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 import { splitSections } from '../shared/document'
 import { undeclaredCallouts } from '../shared/layers'
-import { isFolderDocument, readFolderDocument, readViews } from './folderDocument'
+import { isFolderDocument, readLayerDocument, readViews } from './layerDocument'
 
 const SAMPLES = path.resolve(__dirname, '../../../samples')
 
@@ -22,7 +22,7 @@ describe('the sample workspace', () => {
   it('opens Salt and Signal whole, with its layers, fields and views', async () => {
     const folder = path.join(await copy(), 'Salt and Signal')
     expect(await isFolderDocument(folder)).toBe(true)
-    const document = await readFolderDocument(folder)
+    const document = await readLayerDocument(folder)
     const layers = document.layers!.map((layer) => layer.name)
     expect(layers).toEqual(['notes', 'outline', 'research', 'images'])
     const sections = splitSections(document.text, layers)
@@ -36,7 +36,7 @@ describe('the sample workspace', () => {
   })
 
   it('opens Tidelines as poems with notes', async () => {
-    const document = await readFolderDocument(path.join(await copy(), 'Tidelines'))
+    const document = await readLayerDocument(path.join(await copy(), 'Tidelines'))
     const sections = splitSections(document.text, ['notes'])
     expect(sections.map((section) => section.title)).toEqual(['Low Water', 'Keeper', 'Call Sign', 'Spring Tide'])
     expect(sections[1].notes).toContain('volta')

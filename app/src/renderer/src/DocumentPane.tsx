@@ -4,7 +4,7 @@ import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
-import { type FieldChange, type Layer, type LayerChange, layerHasContent, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
+import { type FieldChange, type Layer, type LayerChange, layerHasContent, layerLabel, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
 import { type DocumentView, fieldValues, renameInView, type SavedView, showLayer } from '../../shared/views'
 import { loadView, storeView } from './documentView'
 import { readPref, writePref } from './prefs'
@@ -122,6 +122,24 @@ interface DocumentPaneProps {
  */
 type Mode = 'edit' | 'read' | 'convert'
 
+const quoted = (names: readonly string[]) => names.map((name) => `“${name}”`).join(', ')
+
+/** What opening a document folder found worth saying: that it was converted, or what in its files matches no section. */
+function documentNotice(document: TextDocument): string | null {
+  const parts: string[] = []
+  if (document.converted) {
+    parts.push(`This document now keeps each layer in a file of its own, with its sections as headings. Its earlier files are in ${document.converted.replaceAll('\\', '/')} inside its folder.`)
+  }
+  const strays = new Map<string, string[]>()
+  for (const stray of document.strays ?? []) strays.set(stray.layer, [...(strays.get(stray.layer) ?? []), stray.name])
+  for (const [layer, names] of strays) {
+    parts.push(`${layerLabel(layer)} has ${names.length === 1 ? 'a heading that matches' : 'headings that match'} no section: ${quoted(names)}. ${names.length === 1 ? 'It is' : 'They are'} kept in the file; rename ${names.length === 1 ? 'it' : 'them'} there to match a section.`)
+  }
+  const orphans = document.orphanFields ?? []
+  if (orphans.length > 0) parts.push(`Fields are kept for ${quoted(orphans)}, which ${orphans.length === 1 ? 'has' : 'have'} no heading.`)
+  return parts.length > 0 ? parts.join(' ') : null
+}
+
 function modeOf(document: TextDocument, keepAsFile: boolean): Mode {
   if (document.folder || document.mtimeMs === null || keepAsFile) return 'edit'
   return looksLikeVerdandiDocument(document.text) ? 'convert' : 'read'
@@ -220,6 +238,8 @@ export function DocumentPane({
     updateState('saved')
     setLoaded((previous) => ({ document, generation: (previous?.generation ?? 0) + 1 }))
     reportStats(document.text, document.format)
+    const told = documentNotice(document)
+    if (told) setNotice(told)
     // A one-file Verdandi document becomes a document folder as soon as it opens.
     if (modeOf(document, keepAsFile) === 'convert') void convert()
   }, [reportStats, updateState, keepAsFile, convert, path])
@@ -286,6 +306,9 @@ export function DocumentPane({
         if (result.notice) setNotice(result.notice)
         // A document folder gave new sections ids: the editor takes them unless typing went on meanwhile.
         if (result.text !== undefined && editor.current?.getText() === text) editor.current.sync(result.text)
+        // Fields by the ids as saved, beside the ones the editor had (in case it kept typing with those).
+        const saved = result.fields
+        if (saved) setLoaded((previous) => previous && { ...previous, document: { ...previous.document, mtimeMs: result.mtimeMs, fields: { ...previous.document.fields, ...saved } } })
         parent.current.onInfo({ ...wordInfo(text, layerNames.current, galleryNames.current), format: result.format })
         if (version.current === target) {
           updateState('saved')
@@ -676,7 +699,7 @@ export function DocumentPane({
           onSelectWord={onSelectWord}
         />
       ) : (
-        <div className="document-message">{mode === 'convert' ? 'Making a folder of sections…' : 'Opening…'}</div>
+        <div className="document-message">{mode === 'convert' ? 'Making it a document…' : 'Opening…'}</div>
       )}
     </section>
   )

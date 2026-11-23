@@ -659,7 +659,7 @@ export function SectionGrid({
       items.push({
         label: 'Fields…',
         disabled: !saved,
-        title: saved ? 'Status, tags and other fields, kept in the section file’s frontmatter' : 'The section has no file yet: it gets one when it saves, in a moment',
+        title: saved ? 'Status, tags and other fields, kept in the main file’s frontmatter' : 'The section isn’t saved yet: it can have fields once it saves, in a moment',
         onClick: () => onEditFields(rowMeta.key, rowMeta.title ?? ''),
       })
     }

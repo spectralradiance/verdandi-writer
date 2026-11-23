@@ -64,7 +64,7 @@ export function FilterDialog({ fields, filter, onApply, onClose }: {
       <div className="settings-body">
         <div className="settings-section">
           {known.size === 0 && (
-            <p className="lexical-hint">No section has fields yet. Fields are the frontmatter of a section file, such as <code>status: draft</code>, and can be added in Obsidian or any editor.</p>
+            <p className="lexical-hint">No section has fields yet. Fields are kept under <code>sections</code> in the main file’s frontmatter, such as <code>status: draft</code>, and can be added there in Obsidian or any editor.</p>
           )}
           {entries.map(([field, value], index) => (
             <div className="view-filter-row" key={index}>
@@ -105,7 +105,7 @@ const KINDS: { kind: LayerKind; label: string }[] = [
 
 /**
  * A document folder's layers: add, rename, change the kind of, or delete one. Each
- * change is made at once, across the section files.
+ * change is made at once: renaming or deleting a layer renames or trashes its file.
  */
 export function LayersDialog({ layers, busy, error, onChange, onClose }: {
   layers: readonly Layer[]
@@ -183,7 +183,7 @@ export function LayersDialog({ layers, busy, error, onChange, onClose }: {
 }
 
 /**
- * One section's fields: its file's frontmatter, such as `status: draft` or
+ * One section's fields: its entry under `sections` in the main file, such as `status: draft` or
  * `tags: [act-1]`. Values are read as YAML reads them, so a list is written `[a, b]`.
  */
 export function FieldsDialog({ section, fields, known, busy, error, onSave, onClose }: {
@@ -242,7 +242,7 @@ export function FieldsDialog({ section, fields, known, busy, error, onSave, onCl
             {[...known.keys()].map((option) => <option key={option} value={option} />)}
           </datalist>
           <button type="button" className="link-button" disabled={busy} onClick={() => setEntries((list) => [...list, ['', '']])}>Add a field</button>
-          <p className="lexical-hint">Fields are saved in the section file’s frontmatter, where Obsidian shows them as properties. Write a list as <code>[act-1, act-2]</code>.</p>
+          <p className="lexical-hint">Fields are saved under <code>sections</code> in the main file’s frontmatter. Write a list as <code>[act-1, act-2]</code>.</p>
           {(problem ?? error) && <p className="lexical-message status-error">{problem ?? error}</p>}
         </div>
         <footer className="modal-footer">

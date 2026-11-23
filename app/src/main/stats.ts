@@ -6,7 +6,7 @@ import type { DailyWords, DocumentStats } from '../shared/ipc'
 import { splitSections, splitWordCounts } from '../shared/document'
 import { layerNamesOf } from '../shared/layers'
 import type { LayerNames } from '../shared/notes'
-import { readDocument } from './folderDocument'
+import { readDocument } from './layerDocument'
 
 interface StatsFile {
   /** Net words changed per local day: the text itself and its notes blocks. */

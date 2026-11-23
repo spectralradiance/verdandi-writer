@@ -625,7 +625,7 @@ export function App() {
           className="fixed bottom-10 left-4 z-20 flex items-center gap-2.5 rounded-md border border-border bg-raised py-1.5 pr-2 pl-3.5 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]"
           role="status"
         >
-          <span>“{folderName(converted.original).replace(/\.[^.]+$/, '')}” is now a folder with a file for each section.</span>
+          <span>“{folderName(converted.original).replace(/\.[^.]+$/, '')}” is now a document folder: its text, and a file for its notes.</span>
           <button type="button" onClick={() => void undoConversion()}>Undo</button>
           <button type="button" className="icon-button" onClick={() => setConverted(null)} aria-label="Dismiss"><X size={14} aria-hidden="true" /></button>
         </div>

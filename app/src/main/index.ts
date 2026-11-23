@@ -15,9 +15,9 @@ import { Dictionary } from './dictionary'
 import { exportMarkdown, plainLinks, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
-  addAttachments, convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
-  changeLayers, readViews, saveViews, setSectionFields, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
-} from './folderDocument'
+  addAttachments, changeLayers, convertFileToFolder, createLayerDocument, isFolderDocument, readDocument, readViews, renameLayerDocument, restoreFolderDocument,
+  saveViews, setSectionFields, trashFolderDocument, type TrashedFolder, undoConversion, writeLayerDocument,
+} from './layerDocument'
 import { LexiconStore } from './lexicon'
 import { DEFAULT_PROMPTS, PromptStore, renderTemplate } from './prompts'
 import { SearchIndex } from './searchIndex'
@@ -310,13 +310,13 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.filesRead, (_event, path: unknown, options?: { allowMissing?: boolean }) =>
-    readDocument(guard.resolve(path), options?.allowMissing === true))
+    readDocument(guard.resolve(path), options?.allowMissing === true, true))
   ipcMain.handle(IPC.filesWrite, async (_event, request: WriteRequest) => {
     const target = guard.resolve(request?.path)
     const previous = await readDocument(target, true).catch(() => null)
     const before = previous && previous.mtimeMs !== null ? previous.text : null
     const result = await isFolderDocument(target)
-      ? await writeFolderDocument(target, request, backups, (file) => shell.trashItem(file))
+      ? await writeLayerDocument(target, request, backups)
       : await writeTextDocument(target, request, backups)
     if (result.ok) {
       void snapshots.afterSave(target, request.text).catch(() => {})
@@ -477,7 +477,7 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.filesRename, async (_event, file: unknown, name: unknown) => {
     const target = guard.resolve(file)
-    return (await isFolderDocument(target)) ? renameFolderDocument(target, text(name).trim()) : renameFile(target, text(name))
+    return (await isFolderDocument(target)) ? renameLayerDocument(target, text(name).trim()) : renameFile(target, text(name))
   })
   ipcMain.handle(IPC.filesTrash, async (_event, file: unknown) => {
     const target = guard.resolve(file)
@@ -500,7 +500,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.documentsCreate, async (_event, parent: unknown, name: unknown) => {
     const error = validateName(text(name))
     if (error) throw new Error(error)
-    return createFolderDocument(guard.resolve(parent), text(name).trim())
+    return createLayerDocument(guard.resolve(parent), text(name).trim())
   })
   ipcMain.handle(IPC.documentsConvert, async (_event, file: unknown) => {
     const converted = await convertFileToFolder(guard.resolve(file))
@@ -509,7 +509,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.documentsUndoConvert, (_event, folder: unknown) => undoConversion(guard.resolve(folder), (item) => shell.trashItem(item)))
   ipcMain.handle(IPC.documentsChangeLayers, (_event, folder: unknown, change: LayerChange) => {
     if (!change || typeof change !== 'object') throw new TypeError('change must be an object')
-    return changeLayers(guard.resolve(folder), change, backups)
+    return changeLayers(guard.resolve(folder), change, backups, (item) => shell.trashItem(item))
   })
   ipcMain.handle(IPC.documentsSetFields, (_event, folder: unknown, id: unknown, change: unknown, expected: unknown) => {
     if (typeof id !== 'string' || !id) throw new TypeError('id must be a section id')

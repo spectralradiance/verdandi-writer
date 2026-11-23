@@ -78,14 +78,20 @@ export interface TextDocument {
   /** null when the file does not exist yet (read with `allowMissing`). */
   mtimeMs: number | null
   size: number
-  /** A document folder shown as one text (PLAN.md §3b); `mtimeMs` then changes when any of its files does. */
+  /** A document folder shown as one text (PLAN.md §3c); `mtimeMs` then changes when any of its files does. */
   folder?: boolean
   /** A document folder's layers, in order. A one-file document has its notes alone. */
   layers?: Layer[]
-  /** A document folder's sections' frontmatter fields (besides id, title and heading), by section id. */
+  /** A document folder's sections' fields (under `sections` in its main file, besides `heading`), by section id. */
   fields?: Record<string, Record<string, unknown>>
   /** When a document folder's files last changed: the latest of them. */
   modifiedMs?: number
+  /** Headings in a layer file that match no section: kept in the file, not in the text. */
+  strays?: { layer: string; name: string }[]
+  /** Names under `sections` in the main file that match no heading. */
+  orphanFields?: string[]
+  /** Set when opening the document converted it from the earlier format: where the earlier files are now, in its folder. */
+  converted?: string
 }
 
 export interface WriteRequest {
@@ -109,9 +115,10 @@ export interface FolderListing {
 export type WriteResult =
   /**
    * `text`: for a document folder, the saved text with ids given to new sections'
-   * markers; the editor takes it if nothing was typed meanwhile.
+   * markers; the editor takes it if nothing was typed meanwhile. `fields`: the
+   * sections' fields by their ids as saved.
    */
-  | { ok: true; mtimeMs: number; size: number; format: TextFormat; notice: string | null; text?: string }
+  | { ok: true; mtimeMs: number; size: number; format: TextFormat; notice: string | null; text?: string; fields?: Record<string, Record<string, unknown>> }
   | { ok: false; reason: 'conflict'; diskMtimeMs: number }
 
 export interface DictionarySense {
@@ -317,7 +324,7 @@ export interface VerdandiApi {
     /** Moves a folder and everything in it to the Recycle Bin. Workspace roots cannot be deleted. */
     trash(path: string): Promise<void>
   }
-  /** Document folders (PLAN.md §3b): a document note and one file per section. */
+  /** Document folders (PLAN.md §3c): a main file with the text and one file per other layer. */
   documents: {
     /** Makes a new document folder with one empty section and returns its path. */
     create(parent: string, name: string): Promise<string>
@@ -325,7 +332,7 @@ export interface VerdandiApi {
     convert(path: string): Promise<string>
     /** Puts the one-file original back, trashes the folder, and returns the file's path. */
     undoConvert(folder: string): Promise<string>
-    /** Adds, renames, deletes or changes one of a document folder's layers, rewriting the section files it touches. */
+    /** Adds, renames, deletes or changes one of a document folder's layers (renaming or trashing its file). */
     changeLayers(folder: string, change: LayerChange): Promise<void>
     /**
      * Changes one section's fields (its file's frontmatter). `expectedMtimeMs` is the

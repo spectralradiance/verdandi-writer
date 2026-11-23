@@ -232,7 +232,7 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
     setOpen(true)
     setEditing(kind)
   }
-  // A new document is a document folder: a document note and a file for each section.
+  // A new document is a document folder: its main file, and a file for each other layer once it has content.
   const createDocument = (name: string) => {
     setEditing(null)
     window.verdandi.documents.create(path, name.replace(/\.(md|markdown|txt)$/i, '')).then(

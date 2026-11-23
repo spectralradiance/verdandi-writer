@@ -2,7 +2,7 @@
 
 A Verdandi document is plain Markdown: one file holds the text, and each other layer (notes, an outline, research, images) has a file of its own. **Sections are headings**, written the same way in every file. Nothing in the files is hidden or specific to Verdandi except a few lines of frontmatter, so every file reads on its own in Obsidian or any editor.
 
-> **Status:** this is the format planned as Phase 9 (PLAN.md §3c). The app reads the earlier folder-of-sections format today; once Phase 9 is built, it will open files written as described here, and convert older documents on open. Files you prepare now will open then.
+> **Status:** Verdandi reads and writes this format (Phase 9, PLAN.md §3c) for a document folder: a folder holding a main file named after it. A main file on its own, outside such a folder, isn't recognised yet.
 
 ## At a glance
 
@@ -223,7 +223,7 @@ Verdandi's notes belong to a section, not to a paragraph, so inline notes (comme
 
 ### Documents from an earlier Verdandi
 
-Folder documents (a document note with a file per section) and one-file documents with `::: notes` blocks convert by themselves when Verdandi opens them, with Undo. There is no need to convert them by hand.
+Folder documents (a document note with a file per section) convert by themselves when Verdandi opens them. The earlier files are kept in `.verdandi/converted/` inside the folder. One-file documents with `::: notes` blocks become document folders when opened, with Undo. There is no need to convert either by hand.
 
 ## Checklist
 
