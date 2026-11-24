@@ -3,7 +3,7 @@ import { type ReactNode, type Ref, useCallback, useEffect, useImperativeHandle, 
 import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
-import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
+import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, summarizeSections } from '../../shared/document'
 import { type FieldChange, type Layer, type LayerChange, layerHasContent, layerLabel, looksLikeVerdandiDocument, NOTES_LAYER, setLayerLabels, undeclaredCallouts } from '../../shared/layers'
 import { type DocumentView, fieldValues, renameInView, type SavedView, showLayer } from '../../shared/views'
 import { loadView, storeView } from './documentView'
@@ -31,26 +31,33 @@ export const SAVE_LABEL: Record<SaveState, string> = {
   error: 'Save failed',
 }
 
+/** The status bar's summary of the document's focus layer (the one each row starts with). */
 export interface DocumentInfo {
-  /** Words in the text itself, outside every layer. */
+  /** The focus layer: `output` is the text itself. */
+  layer: string
   words: number
-  /** Words in each other layer (notes, outline…), in the document's order; layers with none are left out. */
-  layerWords: [layer: string, words: number][]
+  /** Characters in the layer, spaces included. */
+  characters: number
+  /** Sections with something in the layer. */
+  filled: number
+  /** Sections, not counting what comes before the first. */
+  sections: number
   format: TextFormat
 }
 
-/** The words of the text and of each layer, for the status bar. */
-function wordInfo(text: string, names: string[] | null, gallery: readonly string[] = []): Pick<DocumentInfo, 'words' | 'layerWords'> {
-  const counts = splitWordCounts(text, names)
-  const totals = new Map<string, number>()
-  for (const section of splitSections(text, names)) {
-    for (const [layer, words] of Object.entries(section.layerWords)) totals.set(layer, (totals.get(layer) ?? 0) + words)
+/** The focus layer's counts, from the sections' own (which are worked out once per text). */
+export function layerInfo(text: string, names: readonly string[] | null, layer: string): Omit<DocumentInfo, 'format'> {
+  const sections = splitSections(text, names)
+  let words = 0
+  let characters = 0
+  let filled = 0
+  for (const section of sections) {
+    const content = layer === 'output' ? section.output : names ? (section.layers[layer] ?? '') : section.notes
+    words += layer === 'output' ? section.outputWords : names ? (section.layerWords[layer] ?? 0) : section.notesWords
+    characters += content.length
+    if (content.trim() && section.title !== null) filled += 1
   }
-  const order = names ?? ['notes']
-  const layerWords = [...totals].filter(([layer, words]) => words > 0 && !gallery.includes(layer))
-    .sort(([a], [b]) => (order.indexOf(a) + 1 || order.length + 1) - (order.indexOf(b) + 1 || order.length + 1))
-  if (layerWords.length === 0 && counts.notes > 0) layerWords.push(['notes', counts.notes])
-  return { words: counts.output, layerWords }
+  return { layer, words, characters, filled, sections: sections.filter((section) => section.title !== null).length }
 }
 
 /** The section at the cursor of a single-file document. */
@@ -182,6 +189,8 @@ export function DocumentPane({
   const layerNames = useRef<string[] | null>(null)
   /** Layers of images, whose words (file names) aren't counted. */
   const galleryNames = useRef<string[]>([])
+  /** The layer each row starts with, for the status bar's counts. */
+  const focusLayer = useRef('output')
 
   const editor = useRef<MarkdownEditorHandle>(null)
   const disk = useRef<DiskState | null>(null)
@@ -207,7 +216,7 @@ export function DocumentPane({
   }, [])
 
   const reportStats = useCallback((text: string, format: TextFormat) => {
-    parent.current.onInfo({ ...wordInfo(text, layerNames.current, galleryNames.current), format })
+    parent.current.onInfo({ ...layerInfo(text, layerNames.current, focusLayer.current), format })
     parent.current.onHeadings?.(extractHeadings(text, layerNames.current))
     parent.current.onSections?.(summarizeSections(text, layerNames.current))
   }, [])
@@ -260,6 +269,15 @@ export function DocumentPane({
     parent.current.onDirtyChange(saveState !== 'saved')
   }, [saveState])
 
+  // The status bar counts the focus layer: choosing another counts that one.
+  const primary = view?.primary ?? 'output'
+  useEffect(() => {
+    if (focusLayer.current === primary) return
+    focusLayer.current = primary
+    const text = editor.current?.getText()
+    if (text !== undefined && disk.current) parent.current.onInfo({ ...layerInfo(text, layerNames.current, primary), format: disk.current.format })
+  }, [primary])
+
   useEffect(() => () => {
     window.clearTimeout(autosaveTimer.current)
     window.clearTimeout(statsTimer.current)
@@ -309,7 +327,7 @@ export function DocumentPane({
         // Fields by the ids as saved, beside the ones the editor had (in case it kept typing with those).
         const saved = result.fields
         if (saved) setLoaded((previous) => previous && { ...previous, document: { ...previous.document, mtimeMs: result.mtimeMs, fields: { ...previous.document.fields, ...saved } } })
-        parent.current.onInfo({ ...wordInfo(text, layerNames.current, galleryNames.current), format: result.format })
+        parent.current.onInfo({ ...layerInfo(text, layerNames.current, focusLayer.current), format: result.format })
         if (version.current === target) {
           updateState('saved')
         } else {

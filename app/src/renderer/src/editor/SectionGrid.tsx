@@ -229,6 +229,8 @@ export function SectionGrid({
       return
     }
     pending.current.set(cellKey(id, kind), work)
+    // A section far from the screen has no editor yet: bringing it near makes one.
+    if (kind === primary) document.querySelector(`.section-row[data-row="${id}"]`)?.scrollIntoView({ block: 'nearest' })
     const index = rows.current.findIndex((candidate) => candidate.id === id)
     const row = rows.current[index]
     if (!row) return
@@ -1034,6 +1036,19 @@ function SectionRow({
   const row = useRef<HTMLDivElement>(null)
   const primaryBody = useRef<HTMLDivElement>(null)
   const [, setMenuOpen] = useState(0)
+  // Far from the screen a section shows its text plainly, and gets its editor as it comes
+  // near (keeping it from then on): an editor for every section of a long document made
+  // opening it, and every change to the view, take seconds.
+  const [awake, setAwake] = useState(false)
+  useEffect(() => {
+    const element = row.current
+    if (awake || !element) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setAwake(true)
+    }, { root: element.closest('.section-grid'), rootMargin: '1500px 0px' })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [awake])
   const sectionName = title ?? 'Before the first section'
 
   // How tall the primary side's text is, for the secondary side when the two are stacked.
@@ -1044,11 +1059,11 @@ function SectionRow({
     const observer = new ResizeObserver(() => element.style.setProperty('--fit-height', `${body.scrollHeight}px`))
     observer.observe(body.firstElementChild ?? body)
     return () => observer.disconnect()
-  }, [collapsed])
+  }, [collapsed, awake])
 
   const menuButton = menu && (
     <DropdownMenu
-      items={menu()}
+      items={menu}
       trigger={(
         <button type="button" className="icon-button section-menu-button" aria-label={`Section menu for ${sectionName}`} title="Section menu"
           onPointerDown={() => setMenuOpen((count) => count + 1)}>
@@ -1125,7 +1140,9 @@ function SectionRow({
         <div className="section-cell section-primary">
           {!nameLine && <div className="section-menu-float section-buttons">{collapseButton}{layersButton}{menuButton}</div>}
           <div className="cell-body" ref={primaryBody}>
-            <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
+            {awake
+              ? <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
+              : <div className="cell-asleep">{initialText(primary)}</div>}
           </div>
         </div>
       )}

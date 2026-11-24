@@ -946,6 +946,25 @@ button[aria-pressed='true'] {
 
 /* The tooltip box itself is styled in editor/theme.ts. */
 
+/* A section's text before its editor is made (it is far from the screen), set as the editor sets it. */
+.cell-asleep {
+  max-width: var(--cell-text-width, 860px);
+  margin: 0 auto;
+  padding: 14px 24px 18px;
+  min-height: 2em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-source);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.section-grid-live .cell-asleep {
+  font-family: var(--font-serif);
+  font-size: var(--text-size);
+  line-height: var(--text-line-height);
+}
+
 .cm-dictionary-tooltip {
   max-width: 360px;
   padding: 6px 10px;

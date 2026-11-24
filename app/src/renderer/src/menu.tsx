@@ -1,7 +1,7 @@
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { Check } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 export type MenuItem =
   | 'separator'
@@ -67,13 +67,15 @@ export function ContextMenu({ items, children }: { items: MenuItem[]; children: 
 }
 
 /** A menu opened from a button; `trigger` is that button. */
-export function DropdownMenu({ items, trigger }: { items: MenuItem[]; trigger: ReactNode }) {
+/** A menu under its trigger. `items` may be a function: then they are made only while the menu is open. */
+export function DropdownMenu({ items, trigger }: { items: MenuItem[] | (() => MenuItem[]); trigger: ReactNode }) {
+  const [open, setOpen] = useState(false)
   return (
-    <DropdownMenuPrimitive.Root>
+    <DropdownMenuPrimitive.Root open={open} onOpenChange={setOpen}>
       <DropdownMenuPrimitive.Trigger asChild>{trigger}</DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content className={CONTENT} align="end" sideOffset={2} onCloseAutoFocus={(event) => event.preventDefault()}>
-          {renderItems(DropdownMenuPrimitive, items)}
+          {open && renderItems(DropdownMenuPrimitive, typeof items === 'function' ? items() : items)}
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
