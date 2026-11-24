@@ -400,10 +400,135 @@ button[aria-pressed='true'] {
 }
 
 .document {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+
+/* The find box (Ctrl+F): floating in the document's top right corner, under its header. */
+.find-box {
+  position: absolute;
+  top: 54px;
+  right: 22px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(460px, calc(100% - 44px));
+  padding: 6px;
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.find-replace-row {
+  padding-left: 26px;
+  gap: 4px;
+}
+
+.find-field {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.find-field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.find-option.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.find-expand svg {
+  transition: transform 120ms;
+}
+
+.find-expand svg.open {
+  transform: rotate(90deg);
+}
+
+.find-count {
+  min-width: 64px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.find-count.none {
+  color: var(--danger, #c0392b);
+}
+
+.find-text-button {
+  padding: 3px 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+
+/* Statistics: the layer picker in the header, the share bars, the chosen layer's column. */
+.stats-layer-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stats-layer-picker select {
+  padding: 3px 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.stats-bar-head,
+.stats-bar-cell {
+  width: 30%;
+}
+
+.stats-bar {
+  display: block;
+  height: 8px;
+  min-width: 1px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.stats-table .stats-chosen {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.find-text-button:disabled {
+  opacity: 0.5;
 }
 
 .document-header {
@@ -945,6 +1070,25 @@ button[aria-pressed='true'] {
 /* Hover definitions in the editor */
 
 /* The tooltip box itself is styled in editor/theme.ts. */
+
+/* A section's text before its editor is made (it is far from the screen), set as the editor sets it. */
+.cell-asleep {
+  max-width: var(--cell-text-width, 860px);
+  margin: 0 auto;
+  padding: 14px 24px 18px;
+  min-height: 2em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-source);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.section-grid-live .cell-asleep {
+  font-family: var(--font-serif);
+  font-size: var(--text-size);
+  line-height: var(--text-line-height);
+}
 
 .cm-dictionary-tooltip {
   max-width: 360px;
@@ -2278,16 +2422,34 @@ button.section-bar-title:hover {
   align-items: stretch;
   gap: 2px;
   flex: none;
+  /* Tabs that don't fit go on to another row, rather than off the edge. */
+  flex-wrap: wrap;
+  row-gap: 0;
   padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-  scrollbar-width: none;
   font-family: var(--font-ui);
   font-size: 12px;
 }
 
 .section-side-close {
   color: var(--muted);
+}
+
+/* The focus layer's dropdown in the document header: its icon, its name. */
+.focus-layer-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  max-width: 220px;
+  padding: 0 8px;
+}
+
+.focus-layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
 /* A layer with nothing in it for this section. */
@@ -2318,6 +2480,28 @@ button.section-bar-title:hover {
   grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
   align-items: start;
   transition: grid-template-columns 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* While the layers column's edge is dragged, the width follows the pointer without easing. */
+.section-columns.resizing {
+  transition: none;
+}
+
+/* The layers column's left edge: drag it to share the width differently. */
+.section-side-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Inside the column's edge: the column clips what is outside it. */
+  left: 0;
+  z-index: 6;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.section-side-resize:hover,
+.section-columns.resizing .section-side-resize {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .section-columns.side-open {

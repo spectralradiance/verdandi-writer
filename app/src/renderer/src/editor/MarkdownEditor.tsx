@@ -8,6 +8,7 @@ import { type Ref, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef,
 
 import { isSingleWord, matchCase, sentenceAround, wordAt } from '../../../shared/text'
 import { toggleWrap } from './commands'
+import { findExtension, type FindQuery, type FindResult, findStep, replaceEvery, replaceStep, setFindQuery } from './find'
 import { dictionaryHover } from './dictionaryHover'
 import { documentTitle } from './documentTitle'
 import { focusMode as focusModeExtension } from './focusMode'
@@ -15,6 +16,8 @@ import { documentPath, imageFolder as imageFolderFacet, livePreview } from './li
 import { addOrJumpToNotes, notesBlocks, notesView as notesViewFacet, type NotesView, revealSelection, SHOW_NOTES_EVENT } from './notesBlocks'
 import { proposeRangeSpec, proposeText, suggestions, suggestionsOf } from './suggestions'
 import { cellTheme, editorTheme } from './theme'
+
+const NO_MATCHES: FindResult = { total: 0, current: 0, invalid: false }
 
 /** Marks text set from outside (another view of the same file), which is not an edit to report or undo. */
 const syncAnnotation = Annotation.define<boolean>()
@@ -56,6 +59,14 @@ export interface MarkdownEditorHandle {
   /** Puts the cursor at an offset, scrolls to it and focuses the editor. */
   focusAt(offset: number): void
   hasFocus(): boolean
+  /** Highlights every match of `query` (the find box's), or clears them (null). */
+  find(query: FindQuery | null): FindResult
+  /** Selects the next (1) or previous (-1) match, wrapping around. */
+  findStep(direction: 1 | -1): FindResult
+  /** Replaces the selected match and selects the next one. */
+  replaceStep(query: FindQuery, replacement: string): FindResult
+  /** Replaces every match; returns how many there were. */
+  replaceEvery(query: FindQuery, replacement: string): number
 }
 
 export interface WordInContext {
@@ -198,6 +209,10 @@ export function MarkdownEditor({
       editor.focus()
     },
     hasFocus: () => view.current?.hasFocus ?? false,
+    find: (query) => (view.current ? setFindQuery(view.current, query) : NO_MATCHES),
+    findStep: (direction) => (view.current ? findStep(view.current, direction) : NO_MATCHES),
+    replaceStep: (query, replacement) => (view.current ? replaceStep(view.current, query, replacement) : NO_MATCHES),
+    replaceEvery: (query, replacement) => (view.current ? replaceEvery(view.current, query, replacement) : 0),
     cursorLine: () => {
       const editor = view.current
       return editor ? editor.state.doc.lineAt(editor.state.selection.main.head).number : 1
@@ -227,6 +242,7 @@ export function MarkdownEditor({
         EditorView.lineWrapping,
         markdown({ base: markdownLanguage, codeLanguages: languages }),
         search({ top: true }),
+        findExtension,
         highlightSelectionMatches(),
         compartments.live.of([]),
         compartments.focus.of([]),
@@ -250,7 +266,8 @@ export function MarkdownEditor({
           { key: 'Mod-i', run: toggleWrap('*') },
           { key: 'Mod-`', run: toggleWrap('`') },
           { key: 'Mod-Alt-n', run: addOrJumpToNotes },
-          ...searchKeymap,
+          // Ctrl+F opens the find box over the document (App.tsx), not CodeMirror's panel.
+          ...searchKeymap.filter((binding) => binding.key !== 'Mod-f'),
           ...defaultKeymap,
           ...historyKeymap,
           indentWithTab,

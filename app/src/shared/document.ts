@@ -78,11 +78,29 @@ export function sectionStarts(text: string, layers?: LayerNames): { line: number
   ].sort((a, b) => a.line - b.line)
 }
 
+/** The last few splits, newest first: one render asks for the same text's sections many times. */
+const recentSplits: { text: string; layers: string | null; sections: DocSection[] }[] = []
+
 /**
  * Splits a document into sections at its headings and section markers. Headings
- * and markers inside notes never split.
+ * and markers inside notes never split. The result is shared between callers with
+ * the same text, so it must not be changed.
  */
 export function splitSections(text: string, layers?: LayerNames): DocSection[] {
+  const key = layers ? layers.join('\n') : null
+  const index = recentSplits.findIndex((entry) => entry.layers === key && entry.text === text)
+  if (index >= 0) {
+    const [entry] = recentSplits.splice(index, 1)
+    recentSplits.unshift(entry)
+    return entry.sections
+  }
+  const sections = computeSections(text, layers)
+  recentSplits.unshift({ text, layers: key, sections })
+  recentSplits.length = Math.min(recentSplits.length, 6)
+  return sections
+}
+
+function computeSections(text: string, layers?: LayerNames): DocSection[] {
   const lines = text.split('\n')
   const blocks = classifyBlocks(lines, layers)
   const headings = extractHeadings(text, layers)

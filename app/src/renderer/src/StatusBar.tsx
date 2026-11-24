@@ -12,6 +12,15 @@ interface StatusBarProps {
   onSettings: () => void
 }
 
+/** How long `words` take to read, at 238 words a minute: `4 min`, `2 h 5 min`. */
+export function readingTime(words: number): string {
+  const minutes = Math.max(1, Math.round(words / 238))
+  if (minutes < 60) return `${minutes} min read`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `${hours} h ${rest} min read` : `${hours} h read`
+}
+
 export function StatusBar({ documentInfo, todayWords, panes, onSettings }: StatusBarProps) {
   return (
     <footer className="statusbar">
@@ -31,12 +40,16 @@ export function StatusBar({ documentInfo, todayWords, panes, onSettings }: Statu
       )}
       {documentInfo && (
         <span className="status-document">
-          <span>{documentInfo.words.toLocaleString()} {documentInfo.words === 1 ? 'word' : 'words'}</span>
-          {documentInfo.layerWords.map(([layer, words]) => (
-            <span key={layer} title={`Words in the ${layerLabel(layer).toLowerCase()} layer, not counted in the text`}>
-              {words.toLocaleString()} in {layerLabel(layer).toLowerCase()}
+          <span className="status-layer" title="The focus layer: the one each section starts with">{layerLabel(documentInfo.layer)}</span>
+          <span title={`${documentInfo.characters.toLocaleString()} characters`}>
+            {documentInfo.words.toLocaleString()} {documentInfo.words === 1 ? 'word' : 'words'}
+          </span>
+          {documentInfo.words > 0 && <span title="Reading time, at 238 words a minute">{readingTime(documentInfo.words)}</span>}
+          {documentInfo.sections > 0 && (
+            <span title={`Sections with something in the ${layerLabel(documentInfo.layer).toLowerCase()}`}>
+              {documentInfo.filled.toLocaleString()} of {documentInfo.sections.toLocaleString()} sections
             </span>
-          ))}
+          )}
           <span title="File encoding">{encodingLabel(documentInfo.format.encoding)}</span>
           <span title="Line endings">
             {lineEndingLabel(documentInfo.format.eol)}{documentInfo.format.mixedEol ? ' (mixed)' : ''}

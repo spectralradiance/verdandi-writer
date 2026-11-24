@@ -6,32 +6,42 @@ interface ResizeHandleProps {
   width: number
   min: number
   max: number
+  /** The width chosen: once, when the drag ends. */
   onResize: (width: number) => void
   onReset: () => void
+  /**
+   * The CSS variable on the nearest `.shell` that sets the pane's width while
+   * dragging: setting it costs no re-render of the app (and of the document in it).
+   */
+  cssVariable: string
 }
 
 /** A thin strip on a pane's inner edge: drag to resize the pane, double-click to reset it. */
-export function ResizeHandle({ edge, width, min, max, onResize, onReset }: ResizeHandleProps) {
+export function ResizeHandle({ edge, width, min, max, onResize, onReset, cssVariable }: ResizeHandleProps) {
   const start = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
     const handle = event.currentTarget
     const startX = event.clientX
-    handle.setPointerCapture(event.pointerId)
+    const shell = handle.closest<HTMLElement>('.shell')
     document.body.classList.add('resizing')
+    let next = width
     const move = (moveEvent: PointerEvent) => {
       const delta = moveEvent.clientX - startX
-      onResize(Math.round(Math.min(max, Math.max(min, edge === 'right' ? width + delta : width - delta))))
+      next = Math.round(Math.min(max, Math.max(min, edge === 'right' ? width + delta : width - delta)))
+      shell?.style.setProperty(cssVariable, `${next}px`)
     }
+    // The window's events, not the handle's: pointer capture can be lost mid-drag, and the release with it.
     const stop = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', stop)
-      handle.removeEventListener('pointercancel', stop)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
       document.body.classList.remove('resizing')
+      if (next !== width) onResize(next)
     }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', stop)
-    handle.addEventListener('pointercancel', stop)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
   }
 
   return (

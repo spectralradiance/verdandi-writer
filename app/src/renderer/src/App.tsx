@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { layerMaterial, moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
@@ -83,7 +83,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   // The export dialog, with the layers of the document it exports (null for a one-file document).
   const [exporting, setExporting] = useState<{ layers: string[] | null } | null>(null)
-  const [showStats, setShowStats] = useState(false)
+  /** The Statistics dialog, while open: the document's text and layers when it was opened. */
+  const [showStats, setShowStats] = useState<{ text: string; layerNames: string[] | null } | null>(null)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES)
   const savePreferencesTimer = useRef<number | undefined>(undefined)
@@ -347,6 +348,14 @@ export function App() {
         setFocusMode(false)
         setSidebarTab('search')
         setSearchFocus((count) => count + 1)
+      } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+        // Find in the box that last had the focus (FindBox.tsx); outside a document, the browser's own find does nothing useful.
+        const pane = active ? panes.current.get(active.path) : undefined
+        if (pane) {
+          event.preventDefault()
+          event.stopPropagation()
+          pane.openFind()
+        }
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
         event.preventDefault()
         event.stopPropagation()
@@ -369,7 +378,7 @@ export function App() {
     // Capture phase so these win over CodeMirror's own bindings (Ctrl+/ toggles comments there).
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [toggleLive, toggleFocus, focusMode, lookUpCurrentWord, toggleDrawer, toggleLeft])
+  }, [toggleLive, toggleFocus, focusMode, lookUpCurrentWord, toggleDrawer, toggleLeft, active])
 
   // The menu bar's commands do what their shortcuts do.
   useLayoutEffect(() => {
@@ -537,8 +546,10 @@ export function App() {
     <div
       className={`shell${focusMode ? ' shell-focus' : ''}`}
       style={focusMode ? undefined : {
-        gridTemplateColumns: `${leftOpen ? leftWidth : RAIL_WIDTH}px minmax(0, 1fr) ${shownDrawer ? rightWidth : RAIL_WIDTH}px`,
-      }}
+        '--left-pane': `${leftOpen ? leftWidth : RAIL_WIDTH}px`,
+        '--right-pane': `${shownDrawer ? rightWidth : RAIL_WIDTH}px`,
+        gridTemplateColumns: 'var(--left-pane) minmax(0, 1fr) var(--right-pane)',
+      } as CSSProperties}
     >
       {!focusMode && (
         <WorkspaceTree
@@ -559,7 +570,7 @@ export function App() {
           collapsed={!leftOpen}
           onToggle={toggleLeft}
           resizer={(
-            <ResizeHandle edge="right" width={leftWidth} min={LEFT_WIDTH.min} max={LEFT_WIDTH.max}
+            <ResizeHandle edge="right" width={leftWidth} min={LEFT_WIDTH.min} max={LEFT_WIDTH.max} cssVariable="--left-pane"
               onResize={resizeLeft} onReset={() => resizeLeft(LEFT_WIDTH.initial)} />
           )}
           outline={(
@@ -591,7 +602,10 @@ export function App() {
             focusMode={focusMode}
             headerActions={(
               <>
-                <IconButton icon={ChartColumn} label="Statistics" title="Word counts, goal and daily progress; vocabulary and grammar per section over time" onClick={() => setShowStats(true)} />
+                <IconButton icon={ChartColumn} label="Statistics" title="Word counts, goal and daily progress; vocabulary and grammar per section over time" onClick={() => {
+                  const pane = panes.current.get(target.path)
+                  if (pane) setShowStats({ text: pane.getText(), layerNames: pane.layerNames() })
+                }} />
                 <ModeToggles {...mode} />
               </>
             )}
@@ -619,7 +633,7 @@ export function App() {
           onClose={() => showDrawer(null)}
           onShow={() => showDrawer(lastDrawer.current)}
           resizer={(
-            <ResizeHandle edge="left" width={rightWidth} min={RIGHT_WIDTH.min} max={RIGHT_WIDTH.max}
+            <ResizeHandle edge="left" width={rightWidth} min={RIGHT_WIDTH.min} max={RIGHT_WIDTH.max} cssVariable="--right-pane"
               onResize={resizeRight} onReset={() => resizeRight(RIGHT_WIDTH.initial)} />
           )}
           aiState={status?.state ?? 'starting'}
@@ -647,9 +661,12 @@ export function App() {
         <StatsDialog
           path={target.path}
           title={documentTitle}
-          onClose={() => setShowStats(false)}
+          text={showStats.text}
+          layerNames={showStats.layerNames}
+          focusLayer={infos[target.path]?.layer ?? 'output'}
+          onClose={() => setShowStats(null)}
           onOpenSection={(line) => {
-            setShowStats(false)
+            setShowStats(null)
             void openAt({ path: target.path, line })
           }}
         />
