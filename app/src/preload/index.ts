@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
 
 import type { AiEvent } from '../shared/ai'
-import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type SidecarStatus, type WorkspaceState } from '../shared/ipc'
+import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type MenuCommand, type SidecarStatus, type WorkspaceState } from '../shared/ipc'
 
 const api: VerdandiApi = {
   preferences: {
@@ -31,6 +31,13 @@ const api: VerdandiApi = {
       ipcRenderer.on(IPC.workspaceChanged, handler)
       return () => {
         ipcRenderer.removeListener(IPC.workspaceChanged, handler)
+      }
+    },
+    onMenuCommand: (listener) => {
+      const handler = (_event: IpcRendererEvent, command: MenuCommand): void => listener(command)
+      ipcRenderer.on(IPC.menuCommand, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.menuCommand, handler)
       }
     },
   },

@@ -56,6 +56,9 @@ export interface SidecarStatus {
   restarts: number
 }
 
+/** What the menu bar asks the window to do (the same things its shortcuts do). */
+export type MenuCommand = 'settings' | 'toggleSidebar' | 'search' | 'words' | 'ai' | 'toggleLive' | 'focus'
+
 export interface WorkspaceState {
   roots: string[]
   /** A document Verdandi was asked to open (named when it was started), once. */
@@ -304,8 +307,10 @@ export interface VerdandiApi {
     get(): Promise<WorkspaceState>
     addRoot(): Promise<WorkspaceState>
     removeRoot(path: string): Promise<WorkspaceState>
-    /** The workspace changed from outside: Verdandi was started again with folders or files to open. */
+    /** The workspace changed from outside: Verdandi was started again, or the menu opened, folders or files. */
     onChanged(listener: (state: WorkspaceState) => void): () => void
+    /** A command chosen in the menu bar. */
+    onMenuCommand(listener: (command: MenuCommand) => void): () => void
   }
   files: {
     read(path: string, options?: { allowMissing?: boolean }): Promise<TextDocument>
@@ -441,6 +446,7 @@ export const IPC = {
   foldersTrash: 'folders:trash',
   foldersRead: 'folders:read',
   workspaceChanged: 'workspace:changed',
+  menuCommand: 'menu:command',
   foldersCreate: 'folders:create',
   foldersRename: 'folders:rename',
   documentsCreate: 'documents:create',
