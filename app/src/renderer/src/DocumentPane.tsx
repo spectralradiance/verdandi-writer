@@ -12,6 +12,7 @@ import { extractHeadings, type Heading } from '../../shared/text'
 import { onDiskChange, touchesFile } from './changes'
 import type { MarkdownEditorHandle, WordInContext } from './editor/MarkdownEditor'
 import { SectionGrid } from './editor/SectionGrid'
+import { FindBox } from './FindBox'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { ViewControls } from './ViewControls'
@@ -96,6 +97,8 @@ export interface DocumentPaneHandle {
   openHistory(): void
   /** The document's layer names for the classifier (null for a one-file document's notes). */
   layerNames(): string[] | null
+  /** Opens the find box (Ctrl+F) on the box that last had the focus, with its selection to find. */
+  openFind(): void
 }
 
 interface DocumentPaneProps {
@@ -169,6 +172,8 @@ export function DocumentPane({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [converting, setConverting] = useState(false)
   const [view, setView] = useState<DocumentView | null>(null)
+  /** The find box, while it is open: what it started with, and a count of Ctrl+F presses to refocus it. */
+  const [finding, setFinding] = useState<{ seed: string; key: number } | null>(null)
   const [savedViews, setSavedViews] = useState<SavedView[]>([])
   const [activeView, setActiveView] = useState<string | null>(null)
   const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
@@ -357,6 +362,11 @@ export function DocumentPane({
   }, [path])
 
   useImperativeHandle(ref, () => ({
+    openFind: () => {
+      const selected = editor.current?.getSelection() ?? ''
+      // A selection on one line is what to look for; a longer one is left alone.
+      setFinding((current) => ({ seed: selected && !selected.includes('\n') ? selected : current?.seed ?? '', key: (current?.key ?? 0) + 1 }))
+    },
     flush: () => save(),
     // Lines are the file's; the editor starts after the held-back heading.
     revealLine: (line) => editor.current?.revealLine(line),
@@ -542,6 +552,10 @@ export function DocumentPane({
 
   return (
     <section className="document">
+      {finding && loaded && (
+        <FindBox key={finding.seed} seed={finding.seed} focusKey={finding.key} readOnly={mode === 'read'}
+          target={() => editor.current} onClose={() => setFinding(null)} />
+      )}
       <header className="document-header">
         <div className="document-title" title={path}>
           <span className="document-name">{fileName}</span>

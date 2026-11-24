@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { type StylePoint, TRACKED } from '../../shared/analysis'
 import type { SectionStyle, StyleReport } from '../../shared/ipc'
+import { layerStyleReport } from '../../shared/layerStats'
 import { errorMessage } from './target'
 
 /** The measures the overview table shows for every section. */
@@ -69,19 +70,32 @@ function Detail({ section }: { section: SectionStyle }) {
   )
 }
 
+interface StylePanelProps {
+  path: string
+  /** The layer measured: `output` (the text, with its history) or another, measured now. */
+  layer: string
+  text: string
+  layerNames: string[] | null
+  onOpenSection: (line: number) => void
+}
+
 /**
  * Vocabulary and grammar per section: an overview of every section, and one
- * section's measures with how each has changed since it was first recorded.
- * A point is recorded each day a save changes the section's text.
+ * section's measures. For the text, with how each has changed since it was first
+ * recorded (a point is recorded each day a save changes the section's text);
+ * another layer is measured as it is now.
  */
-export function StylePanel({ path, onOpenSection }: { path: string; onOpenSection: (line: number) => void }) {
-  const [report, setReport] = useState<StyleReport | null>(null)
+export function StylePanel({ path, layer, text, layerNames, onOpenSection }: StylePanelProps) {
+  const [saved, setSaved] = useState<StyleReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string>('*')
+  const isText = layer === 'output'
 
   useEffect(() => {
-    window.verdandi.stats.style(path).then(setReport, (reason: unknown) => setError(errorMessage(reason)))
-  }, [path])
+    if (isText) window.verdandi.stats.style(path).then(setSaved, (reason: unknown) => setError(errorMessage(reason)))
+  }, [path, isText])
+  const measuredNow = useMemo(() => (isText ? null : layerStyleReport(text, layerNames, layer)), [isText, text, layerNames, layer])
+  const report = isText ? saved : measuredNow
 
   if (error) return <p className="lexical-message status-error">{error}</p>
   if (!report) return <p className="lexical-hint">Measuring…</p>
@@ -121,8 +135,10 @@ export function StylePanel({ path, onOpenSection }: { path: string; onOpenSectio
       </h3>
       <Detail section={current} />
       <p className="lexical-hint">
-        Measured on this computer from the text alone (notes and other layers are left out). Passive voice and adverbs are
-        estimates from word shapes. A point is recorded each day a save changes a section’s text.
+        {isText
+          ? 'Measured on this computer from the text alone (other layers are left out). A point is recorded each day a save changes a section’s text.'
+          : 'Measured on this computer from this layer as it is now; its history isn’t kept, only the text’s.'}
+        {' '}Passive voice and adverbs are estimates from word shapes.
       </p>
     </div>
   )

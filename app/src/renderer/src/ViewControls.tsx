@@ -1,12 +1,17 @@
-import { Bookmark, FileText, Images, Layers, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
+import { Bookmark, ChevronDown, FileText, Images, Layers, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
 
 import type { Layer, LayerKind } from '../../shared/layers'
 import { type DocumentView, placeLayer, sameView, type SavedView } from '../../shared/views'
 import { kindLabel } from './editor/SectionGrid'
 import { DropdownMenu, type MenuItem } from './menu'
-import { IconButton } from './Toolbar'
 
 const KIND_ICON: Record<LayerKind, LucideIcon> = { prose: NotebookPen, list: ListTree, gallery: Images }
+
+/** A layer's icon: the text's, or its kind's. */
+function LayerIcon({ kind, layers }: { kind: string; layers: readonly Layer[] }) {
+  const Icon = kind === 'output' ? FileText : KIND_ICON[layers.find((layer) => layer.name === kind)?.kind ?? 'prose']
+  return <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+}
 
 interface ViewControlsProps {
   /** The document's layers (a one-file document: its notes). */
@@ -32,11 +37,20 @@ interface ViewControlsProps {
  */
 export function ViewControls({ layers, view, onView, saved, activeName, onApply, onSaveAs, onUpdate, onDelete, onFilter, onManageLayers }: ViewControlsProps) {
   const kinds = ['output', ...layers.map((layer) => layer.name)]
-  const iconOf = (kind: string) => (kind === 'output' ? FileText : KIND_ICON[layers.find((layer) => layer.name === kind)?.kind ?? 'prose'])
 
   // The layer that was first takes the chosen one's place, so switching back and forth keeps both in sight.
   const choosePrimary = (kind: string) => onView((current) => placeLayer(current, kind, { at: 'primary' }))
 
+
+  const focusItems: MenuItem[] = [
+    { heading: 'Focus layer' },
+    ...kinds.map((kind): MenuItem => ({
+      label: kindLabel(kind),
+      checked: view.primary === kind,
+      title: `Each section’s ${kindLabel(kind).toLowerCase()} first`,
+      onClick: () => choosePrimary(kind),
+    })),
+  ]
 
   const filterEntries = Object.entries(view.filter)
   // The view chosen last, or else a saved view this one is the same as (after reopening the document).
@@ -71,13 +85,14 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
 
   return (
     <>
-      <div className="segmented" role="group" aria-label="First layer in each section">
-        {kinds.map((kind) => (
-          <IconButton key={kind} icon={iconOf(kind)} label={`${kindLabel(kind)} view`}
-            title={`${kindLabel(kind)} view: each section’s ${kindLabel(kind).toLowerCase()} first`}
-            aria-pressed={view.primary === kind} onClick={() => choosePrimary(kind)} />
-        ))}
-      </div>
+      <DropdownMenu items={focusItems} trigger={(
+        <button type="button" className="tool-button focus-layer-button" aria-label={`Focus layer: ${kindLabel(view.primary)}`}
+          title="The focus layer: the one each section starts with">
+          <LayerIcon kind={view.primary} layers={layers} />
+          <span className="focus-layer-name">{kindLabel(view.primary)}</span>
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+      )} />
       {onManageLayers && (
         <button type="button" className="tool-button" aria-label="Manage layers" title="Add, rename or delete this document’s layers" onClick={onManageLayers}>
           <Layers size={16} strokeWidth={1.8} aria-hidden="true" />

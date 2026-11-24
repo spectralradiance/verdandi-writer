@@ -1,13 +1,14 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, PanelRightClose, PanelRightOpen, Rows3, X } from 'lucide-react'
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { suggestEdits } from '../../../shared/diff'
 import { type Layer, layerLabel } from '../../../shared/layers'
 import type { LayerNames } from '../../../shared/notes'
 import { besideLayer, type DocumentView, matchesFilter } from '../../../shared/views'
 import { DropdownMenu, type MenuItem } from '../menu'
+import type { FindQuery } from './find'
 import { GalleryCell } from './GalleryCell'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
 import {
@@ -440,6 +441,20 @@ export function SectionGrid({
     ]
   }, [moveBetweenRows, withCell, splitAtCursor, primary, sideKinds, gallery])
 
+  /** The box being searched by the find box, and what it looks for. */
+  const findTarget = useRef<MarkdownEditorHandle | null>(null)
+  const findQuery = useRef<FindQuery | null>(null)
+  /** The box to find in: the one that last had the focus, given the find box's query if it is new to it. */
+  const finder = () => {
+    const handle = activeHandle() ?? null
+    if (handle !== findTarget.current) {
+      findTarget.current?.find(null)
+      findTarget.current = handle
+      if (handle && findQuery.current) handle.find(findQuery.current)
+    }
+    return handle
+  }
+
   const activeHandle = () => {
     const current = active.current
     const found = current ? handles.current.get(cellKey(current.id, current.kind)) : undefined
@@ -564,9 +579,68 @@ export function SectionGrid({
       }
     },
     hasFocus: () => [...handles.current.values()].some((handle) => handle.hasFocus()),
+    // Find works in the box that last had the focus; moving to another box moves the highlights with it.
+    find: (query) => {
+      findQuery.current = query
+      if (!query) {
+        findTarget.current?.find(null)
+        findTarget.current = null
+        return { total: 0, current: 0, invalid: false }
+      }
+      return finder()?.find(query) ?? { total: 0, current: 0, invalid: false }
+    },
+    findStep: (direction) => finder()?.findStep(direction) ?? { total: 0, current: 0, invalid: false },
+    replaceStep: (query, replacement) => finder()?.replaceStep(query, replacement) ?? { total: 0, current: 0, invalid: false },
+    replaceEvery: (query, replacement) => finder()?.replaceEvery(query, replacement) ?? 0,
   }))
 
   const changeView = (change: (current: DocumentView) => DocumentView) => parent.current.onViewChange(change)
+
+  // The document beside its layers column: how the width is shared, kept with the view.
+  const columns = useRef<HTMLDivElement>(null)
+  const sideShare = view.columns[0]?.width ?? 1
+  const setSideShare = (main: number, side: number) => changeView((current) => ({
+    ...current,
+    primaryWidth: main,
+    columns: current.columns.length > 0 ? current.columns.map((column, index) => (index === 0 ? { ...column, width: side } : column)) : current.columns,
+  }))
+  /** Drags the layers column's edge: the grid follows at once, and the view keeps the share when the drag ends. */
+  const resizeColumns = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = columns.current
+    if (event.button !== 0 || !element) return
+    event.preventDefault()
+    element.classList.add('resizing')
+    document.body.classList.add('resizing')
+    const box = element.getBoundingClientRect()
+    // The side column's share of the width, from a fifth to four fifths.
+    let fraction = (box.right - event.clientX) / box.width
+    const shares = () => {
+      const side = view.columns.length > 0 ? 1 : sideShare
+      const main = Math.round((side * (1 - fraction) / fraction) * 100) / 100
+      return { main, side }
+    }
+    const move = (moveEvent: PointerEvent) => {
+      fraction = Math.min(0.8, Math.max(0.2, (box.right - moveEvent.clientX) / box.width))
+      const { main, side } = shares()
+      element.style.setProperty('--main-share', `${main}fr`)
+      element.style.setProperty('--side-share', `${side}fr`)
+    }
+    // The window's events, not the handle's: pointer capture can be lost mid-drag, and the release with it.
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      element.classList.remove('resizing')
+      document.body.classList.remove('resizing')
+      const { main, side } = shares()
+      element.style.removeProperty('--main-share')
+      element.style.removeProperty('--side-share')
+      setSideShare(main, side)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
   const toggleIn = (list: string[], key: string, on: boolean) => (on ? [...list.filter((item) => item !== key), key] : list.filter((item) => item !== key))
 
   /** The section menu for row `index` of `meta.rows`. */
@@ -809,8 +883,8 @@ export function SectionGrid({
           </div>
         </div>
       )}
-      <div className={`section-columns${open ? ' side-open' : ''}`}
-        style={{ '--main-share': `${view.primaryWidth}fr`, '--side-share': `${view.columns[0]?.width ?? 1}fr` } as CSSProperties}
+      <div ref={columns} className={`section-columns${open ? ' side-open' : ''}`}
+        style={{ '--main-share': `${view.primaryWidth}fr`, '--side-share': `${sideShare}fr` } as CSSProperties}
         onTransitionEnd={(event) => {
           if (event.target === event.currentTarget && !open) setPanelId(null)
         }}>
@@ -875,6 +949,11 @@ export function SectionGrid({
       </div>
       {!pageMode && sideKinds.length > 0 && (
         <aside className="section-side" aria-hidden={!open} inert={!open}>
+          {open && (
+            <div className="section-side-resize" role="separator" aria-orientation="vertical" aria-label="Width of the layers column"
+              title="Drag to change the width of the document and of its layers; double-click to share it evenly"
+              onPointerDown={resizeColumns} onDoubleClick={() => setSideShare(1, 1)} />
+          )}
           {panelRow && beside !== null && (
             <div className="section-side-inner">
               <div className="section-side-head">
