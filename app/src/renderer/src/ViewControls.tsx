@@ -1,4 +1,4 @@
-import { Bookmark, ChevronDown, FileText, Images, Layers, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
+import { Bookmark, ChevronDown, FileText, Images, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
 
 import type { Layer, LayerKind } from '../../shared/layers'
 import { type DocumentView, placeLayer, sameView, type SavedView } from '../../shared/views'
@@ -51,6 +51,9 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
       onClick: () => choosePrimary(kind),
     })),
   ]
+  if (onManageLayers) {
+    focusItems.push('separator', { label: 'Manage layers…', title: 'Add, rename or delete this document’s layers', onClick: onManageLayers })
+  }
 
   const filterEntries = Object.entries(view.filter)
   // The view chosen last, or else a saved view this one is the same as (after reopening the document).
@@ -93,11 +96,6 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
           <ChevronDown size={13} aria-hidden="true" />
         </button>
       )} />
-      {onManageLayers && (
-        <button type="button" className="tool-button" aria-label="Manage layers" title="Add, rename or delete this document’s layers" onClick={onManageLayers}>
-          <Layers size={16} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      )}
       <DropdownMenu items={viewItems} trigger={(
         <button type="button" className={`tool-button${filterEntries.length || view.hidden.length ? ' tool-button-flag' : ''}`} aria-label="Views"
           title={active ? `Views · ${active.name}` : 'Saved views and filters'}>
