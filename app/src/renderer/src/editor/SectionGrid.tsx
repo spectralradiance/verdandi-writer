@@ -1,9 +1,8 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, GripVertical, PanelRightClose, PanelRightOpen, Rows3, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, PanelRightClose, PanelRightOpen, Rows3, X } from 'lucide-react'
 import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { moveSectionText } from '../../../shared/document'
 import { suggestEdits } from '../../../shared/diff'
 import { type Layer, layerLabel } from '../../../shared/layers'
 import type { LayerNames } from '../../../shared/notes'
@@ -59,6 +58,8 @@ interface RowMeta {
   heading: boolean
   /** The layers with something in them, one per line (compared as a whole). */
   filled: string
+  /** The level of the heading the section starts with in the text, or 2. */
+  level: number
 }
 
 export interface SectionGridProps {
@@ -94,7 +95,9 @@ const cellKey = (id: number, kind: CellKind) => `${id}:${kind}`
 /** Per-section settings are remembered by key, so they survive reopening the file. */
 const titleKey = (title: string | null) => title ?? '\u0000before-first-heading'
 const filledKinds = (row: Row) => (Object.keys(row.cells) as CellKind[]).filter((kind) => row.cells[kind].text.trim()).join('\n')
-const metaOf = (row: Row): RowMeta => ({ id: row.id, key: row.key, title: row.title, named: row.named, heading: row.heading, filled: filledKinds(row) })
+/** The level of the `#` heading on a section's first line, or 2. */
+const headingLevel = (text: string) => /^(#{1,6})[ \t]/.exec(text)?.[1].length ?? 2
+const metaOf = (row: Row): RowMeta => ({ id: row.id, key: row.key, title: row.title, named: row.named, heading: row.heading, filled: filledKinds(row), level: headingLevel(row.text) })
 
 /** What a layer is called on screen: the text, or the layer's name. */
 export function kindLabel(kind: CellKind): string {
@@ -275,7 +278,7 @@ export function SectionGrid({
     rows.current = next
     const changed = next.length !== before.length
       || next.some((row, index) => row.id !== before[index].id || row.key !== before[index].key || row.title !== before[index].title
-        || row.named !== before[index].named || row.heading !== before[index].heading || filledKinds(row) !== filledKinds(before[index]))
+        || row.named !== before[index].named || row.heading !== before[index].heading || filledKinds(row) !== filledKinds(before[index]) || headingLevel(row.text) !== headingLevel(before[index].text))
     const preamble = showsPreamble(sections)
     setMeta((current) => (changed || current.preamble !== preamble ? { rows: next.map(metaOf), preamble } : current))
   }, [kinds, classify])
@@ -292,18 +295,6 @@ export function SectionGrid({
     parent.current.onDocChanged()
     return true
   }, [getText, resync])
-
-  /** A section dragged by its grip and dropped before or after another (row indexes, the text before the first section included). */
-  const reorderSections = (from: number, target: number, after: boolean) => {
-    const offset = meta.rows[0]?.title === null ? 1 : 0
-    const source = from - offset
-    // Dropped before the text that precedes every section: it becomes the first section.
-    const at = Math.max(0, target - offset)
-    const place = after && target >= offset ? at + 1 : at
-    const to = source < place ? place - 1 : place
-    if (source < 0) return
-    applyText(moveSectionText(getText(), source, to, classify))
-  }
 
   const onCellChanges = useCallback((id: number, kind: CellKind, changes: ChangeSet, text: string) => {
     if (applying.current) {
@@ -762,6 +753,12 @@ export function SectionGrid({
   const open = openId !== null && !pageMode && meta.rows.some((rowMeta) => rowMeta.id === openId)
   const panelRow = meta.rows.find((rowMeta) => rowMeta.id === panelId) ?? null
   const panelFilled = panelRow ? filledOf(panelRow) : []
+  /** A section's heading level: its `level` field (a document folder's), else its heading's in the text, else 2. */
+  const levelOf = (rowMeta: RowMeta) => {
+    const field = fields?.[rowMeta.key]?.level
+    const number = typeof field === 'number' ? field : typeof field === 'string' ? Number(field) : NaN
+    return Number.isInteger(number) && number >= 1 && number <= 6 ? number : rowMeta.level
+  }
   const cellProps = (rowMeta: RowMeta, kind: CellKind): CellProps => ({
     path,
     imageFolder: layers ? path : undefined,
@@ -786,9 +783,9 @@ export function SectionGrid({
   })
 
   const classes = [
-    'section-grid', `primary-${primary === 'output' ? 'output' : 'layer'}`, pageMode && sideKinds.length ? '' : 'secondary-off',
+    'section-grid', live ? 'section-grid-live' : '', `primary-${primary === 'output' ? 'output' : 'layer'}`, pageMode && sideKinds.length ? '' : 'secondary-off',
     pageMode ? 'page-mode' : '',
-    // A list layer first reads as one outline of the whole document, its sections dragged by their grips.
+    // A list layer first reads as one outline of the whole document.
     layers?.find((layer) => layer.name === primary)?.kind === 'list' ? 'primary-list' : '',
   ].filter(Boolean).join(' ')
 
@@ -852,11 +849,11 @@ export function SectionGrid({
               filled: filledOf(rowMeta),
               onToggle: () => showLayers(openId === rowMeta.id ? null : rowMeta.id),
             }}
+            level={levelOf(rowMeta)}
             collapsed={collapsed}
             onCollapse={pageMode ? null : (value) => changeView((current) => ({ ...current, collapsed: toggleIn(current.collapsed, key, value) }))}
             renaming={renaming === rowMeta.id}
             menu={readOnly ? null : () => menuFor(index)}
-            reorder={readOnly || pageMode ? null : { index, draggable: rowMeta.title !== null, onDrop: reorderSections }}
             onRename={(name) => {
               setRenaming(null)
               if (name !== null) applyText(renameSection(getText(), index, name, classify), true)
@@ -1000,8 +997,6 @@ function NameInput({ initial, onDone }: { initial: string; onDone: (name: string
   )
 }
 
-const SECTION_DRAG = 'application/x-verdandi-section'
-
 /** A row's button that opens its other layers in the right column. */
 interface RowLayers {
   open: boolean
@@ -1011,7 +1006,7 @@ interface RowLayers {
 }
 
 function SectionRow({
-  id, sectionKey, title, named, heading, primary, side, layers, collapsed, onCollapse, renaming, menu, reorder, onRename, initialText, cell,
+  id, sectionKey, title, named, heading, primary, side, layers, collapsed, onCollapse, renaming, menu, onRename, initialText, cell, level,
 }: {
   id: number
   /** The section's key in the view, for finding its row. */
@@ -1030,8 +1025,8 @@ function SectionRow({
   renaming: boolean
   /** The section menu's items, or null for a document that cannot be edited. */
   menu: (() => MenuItem[]) | null
-  /** Dragging sections by their grip to reorder them, or null where they can't be. */
-  reorder: { index: number; draggable: boolean; onDrop: (from: number, target: number, after: boolean) => void } | null
+  /** The section's heading level (1 to 6): its name shows as that heading, sized as the text's headings are. */
+  level: number
   onRename: (name: string | null) => void
   initialText: (kind: CellKind) => string
   cell: (kind: CellKind) => CellProps
@@ -1039,7 +1034,6 @@ function SectionRow({
   const row = useRef<HTMLDivElement>(null)
   const primaryBody = useRef<HTMLDivElement>(null)
   const [, setMenuOpen] = useState(0)
-  const [dropSide, setDropSide] = useState<'before' | 'after' | null>(null)
   const sectionName = title ?? 'Before the first section'
 
   // How tall the primary side's text is, for the secondary side when the two are stacked.
@@ -1064,23 +1058,6 @@ function SectionRow({
     />
   )
 
-  const grip = reorder?.draggable && (
-    <span
-      className="section-grip"
-      draggable
-      role="button"
-      aria-label={`Drag ${sectionName} to move it`}
-      title="Drag to move this section"
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData(SECTION_DRAG, String(reorder.index))
-        if (row.current) event.dataTransfer.setDragImage(row.current, 16, 16)
-      }}
-    >
-      <GripVertical size={14} aria-hidden="true" />
-    </span>
-  )
-
   const filledNames = layers?.filled.map((kind) => kindLabel(kind).toLowerCase()).join(', ')
   const layersButton = layers && (
     <button type="button" className={`icon-button section-layers-button${layers.open ? ' open' : ''}${layers.filled.length ? ' filled' : ''}`}
@@ -1101,6 +1078,7 @@ function SectionRow({
 
   // A heading in the text already names the section there; otherwise the name gets a line of its own.
   const nameLine = renaming || collapsed || primary !== 'output' || named
+  const Heading = `h${Math.min(6, Math.max(1, Math.round(level)))}` as 'h1'
   const style = { '--layer-count': Math.max(1, side.length) } as CSSProperties
   const sideShown = side.length > 0 && !collapsed
   const frame = (kind: CellKind, caption: boolean) => (
@@ -1121,26 +1099,8 @@ function SectionRow({
       ref={row}
       className={[
         'section-row', sideShown ? '' : 'secondary-hidden', layers?.open ? 'layers-open' : '', title === null ? 'section-preamble' : '',
-        nameLine ? 'has-name-line' : '', collapsed ? 'collapsed' : '', dropSide ? `drop-${dropSide}` : '',
+        nameLine ? 'has-name-line' : '', collapsed ? 'collapsed' : '',
       ].filter(Boolean).join(' ')}
-      onDragOver={reorder ? (event) => {
-        if (!event.dataTransfer.types.includes(SECTION_DRAG)) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
-        const box = event.currentTarget.getBoundingClientRect()
-        setDropSide(event.clientY > box.top + box.height / 2 ? 'after' : 'before')
-      } : undefined}
-      onDragLeave={reorder ? (event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropSide(null)
-      } : undefined}
-      onDrop={reorder ? (event) => {
-        const side = dropSide
-        setDropSide(null)
-        const from = event.dataTransfer.getData(SECTION_DRAG)
-        if (!from || side === null) return
-        event.preventDefault()
-        if (Number(from) !== reorder.index) reorder.onDrop(Number(from), reorder.index, side === 'after')
-      } : undefined}
       style={style}
       data-section={sectionName}
       data-row={id}
@@ -1151,19 +1111,19 @@ function SectionRow({
           {renaming && title !== null ? (
             <NameInput initial={title} onDone={onRename} />
           ) : (
-            <h2 className="section-name" title={named && !heading ? 'Section name (not a heading in the text)' : 'Section heading'}
-              onDoubleClick={collapsed && onCollapse ? () => onCollapse(false) : undefined}>{sectionName}</h2>
+            <Heading className="section-name" title={named && !heading ? 'Section name (not a heading in the text)' : 'Section heading'}
+              onDoubleClick={collapsed && onCollapse ? () => onCollapse(false) : undefined}>{sectionName}</Heading>
           )}
-          <span className="section-name-rule" aria-hidden="true" />
-          {grip}
-          {collapseButton}
-          {layersButton}
-          {menuButton}
+          <span className="section-buttons">
+            {collapseButton}
+            {layersButton}
+            {menuButton}
+          </span>
         </div>
       )}
       {!collapsed && (
         <div className="section-cell section-primary">
-          {!nameLine && <div className="section-menu-float">{grip}{collapseButton}{layersButton}{menuButton}</div>}
+          {!nameLine && <div className="section-menu-float section-buttons">{collapseButton}{layersButton}{menuButton}</div>}
           <div className="cell-body" ref={primaryBody}>
             <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
           </div>
