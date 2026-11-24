@@ -2281,7 +2281,7 @@ button.section-bar-title:hover {
   align-items: stretch;
   gap: 2px;
   flex: none;
-  padding: 0 4px 0 14px;
+  padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
@@ -2290,8 +2290,6 @@ button.section-bar-title:hover {
 }
 
 .section-side-close {
-  align-self: center;
-  margin-left: auto;
   color: var(--muted);
 }
 
@@ -2328,8 +2326,111 @@ button.section-bar-title:hover {
 }
 
 /* The open section grows to show its layers' text, up to the height of the view; past that the panel scrolls. */
-.section-grid .section-row.side-open {
-  min-height: min(calc(var(--side-fit, 0px) + 2px), calc(var(--view-height, 100vh) - var(--bar-height, 0px)));
+/* The document, and the right column a section's other layers open in. Closed, the
+   right column has no width and the document sits in the middle; opening it slides
+   the document left and the layers in from the right. */
+.section-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
+  align-items: start;
+  transition: grid-template-columns 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.section-columns.side-open {
+  grid-template-columns: minmax(0, var(--main-share, 1fr)) minmax(0, var(--side-share, 1fr));
+}
+
+.section-main {
+  min-width: 0;
+}
+
+.section-side {
+  position: sticky;
+  /* Sticky offsets count from inside the grid's 8px top padding, as the bar's does. */
+  top: calc(var(--bar-height, 0px) - 8px);
+  height: calc(var(--view-height, 100vh) - var(--bar-height, 0px));
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid transparent;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  transition: border-color 280ms;
+}
+
+.section-columns.side-open .section-side {
+  border-left-color: var(--border);
+}
+
+.section-side-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Laid out at its open width while the column slides, so the text doesn't rewrap as it moves. */
+  min-width: 320px;
+  opacity: 0;
+  transform: translateX(24px);
+  transition: opacity 200ms ease, transform 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.section-columns.side-open .section-side-inner {
+  opacity: 1;
+  transform: none;
+}
+
+/* Made as the column opens: it fades and slides in from where a closed one sits. */
+@starting-style {
+  .section-columns.side-open .section-side-inner {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.section-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 0 24px;
+}
+
+.section-side-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.section-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A new section or tab in the open column fades in. */
+.section-side-body > * {
+  animation: section-side-in 180ms ease;
+}
+
+@keyframes section-side-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-columns,
+  .section-side,
+  .section-side-inner {
+    transition: none;
+  }
+
+  .section-side-body > * {
+    animation: none;
+  }
 }
 
 .section-layers-count {
@@ -2373,15 +2474,16 @@ button.section-bar-title:hover {
   background: linear-gradient(var(--accent), var(--accent)) no-repeat bottom center / 3em 2px;
 }
 
+/* No lines between sections: their headings are enough. */
 .section-row {
   position: relative;
   display: grid;
   grid-template-columns: var(--row-columns, minmax(0, 1fr) minmax(0, 1fr));
-  border-top: 1px solid var(--border);
 }
 
-.section-row:last-child {
-  border-bottom: 1px solid var(--border);
+/* The section whose layers are open in the right column. */
+.section-row.layers-open .section-name {
+  color: var(--accent);
 }
 
 .section-row:not(.secondary-hidden) {
