@@ -409,12 +409,6 @@ function registerIpc(): void {
     return lexicon().save(entry)
   })
   ipcMain.handle(IPC.lexiconRemove, (_event, word: unknown) => lexicon().remove(text(word), (file) => shell.trashItem(file)))
-  ipcMain.handle(IPC.lexiconImportAisling, async (event) => {
-    const options: OpenDialogOptions = { title: 'Choose Aisling’s Vocabulary folder', properties: ['openDirectory'] }
-    const owner = BrowserWindow.fromWebContents(event.sender)
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
-    return result.canceled ? null : lexicon().importAisling(result.filePaths[0])
-  })
 
   ipcMain.handle(IPC.exportDocument, async (event, folder: unknown, title: unknown, options: ExportOptions) => {
     const source = guard.resolve(folder)

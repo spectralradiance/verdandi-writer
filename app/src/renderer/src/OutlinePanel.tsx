@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 import { outlineMarkdown } from '../../shared/outline'
-import type { Heading } from '../../shared/text'
 import type { Outline } from './useOutline'
 
 interface OutlinePanelProps {
@@ -9,78 +9,113 @@ interface OutlinePanelProps {
   onReveal: (path: string, line: number) => void
 }
 
-function HeadingList({ headings, path, onReveal }: { headings: Heading[]; path: string; onReveal: OutlinePanelProps['onReveal'] }) {
-  if (headings.length === 0) return null
-  const top = Math.min(...headings.map((heading) => heading.level))
+interface OutlineNode {
+  key: string
+  text: string
+  line: number
+  level: number
+  /** A section of the document (else a heading inside one). */
+  section: boolean
+  children: OutlineNode[]
+}
+
+/** The sections and the headings inside them, nested by heading level. */
+function outlineTree(outline: Outline): OutlineNode[] {
+  const roots: OutlineNode[] = []
+  const stack: OutlineNode[] = []
+  const place = (node: OutlineNode) => {
+    while (stack.length && stack[stack.length - 1].level >= node.level) stack.pop()
+    ;(stack.length ? stack[stack.length - 1].children : roots).push(node)
+    stack.push(node)
+  }
+  for (const section of outline.sections) {
+    if (section.title === null) continue
+    place({ key: `s${section.line}:${section.title}`, text: section.title, line: section.line, level: section.level, section: true, children: [] })
+    // The headings inside a section sit under it, nested from the shallowest of them.
+    const shallowest = Math.min(...section.headings.map((heading) => heading.level))
+    for (const heading of section.headings) {
+      place({ key: `h${heading.line}:${heading.text}`, text: heading.text, line: heading.line, level: section.level + 1 + heading.level - shallowest, section: false, children: [] })
+    }
+  }
+  return roots
+}
+
+const indent = (depth: number) => ({ paddingLeft: `${8 + depth * 14}px` })
+
+function OutlineBranch({ nodes, depth, closed, onToggle, onOpen }: {
+  nodes: OutlineNode[]
+  depth: number
+  closed: ReadonlySet<string>
+  onToggle: (key: string) => void
+  onOpen: (line: number) => void
+}) {
   return (
-    <ul className="outline-headings">
-      {headings.map((heading) => (
-        <li key={`${heading.line}:${heading.text}`}>
-          <button
-            type="button"
-            className="outline-heading"
-            style={{ paddingLeft: `${22 + (heading.level - top) * 12}px` }}
-            onClick={() => onReveal(path, heading.line)}
-            title={heading.text}
-          >
-            {heading.text}
-          </button>
-        </li>
-      ))}
+    <ul className="outline-tree" role={depth === 0 ? 'tree' : 'group'}>
+      {nodes.map((node) => {
+        const open = !closed.has(node.key)
+        const parent = node.children.length > 0
+        return (
+          <li key={node.key} role="treeitem" aria-expanded={parent ? open : undefined}>
+            <div className="tree-row-wrap">
+              <button type="button" className={`tree-row outline-row${node.section ? ' outline-section' : ' outline-heading'}`} style={indent(depth)}
+                onClick={() => onOpen(node.line)} title={node.text}>
+                <span className="tree-chevron" role={parent ? 'button' : undefined} aria-label={parent ? (open ? 'Collapse' : 'Expand') : undefined}
+                  onClick={parent ? (event) => {
+                    event.stopPropagation()
+                    onToggle(node.key)
+                  } : undefined}>
+                  {parent && (open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />)}
+                </span>
+                <span className="tree-label">{node.text}</span>
+              </button>
+            </div>
+            {parent && open && <OutlineBranch nodes={node.children} depth={depth + 1} closed={closed} onToggle={onToggle} onOpen={onOpen} />}
+          </li>
+        )
+      })}
     </ul>
   )
 }
 
-/** The document's structure: each # section in order, its size, and the headings inside it. */
+/** The document's structure as a tree: its sections in order, nested by level, with the headings inside them. */
 export function OutlinePanel({ outline, onReveal }: OutlinePanelProps) {
   const [copied, setCopied] = useState(false)
+  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set())
+  const tree = useMemo(() => (outline ? outlineTree(outline) : []), [outline])
 
   if (!outline) return <p className="sidebar-empty">Open a document to see its outline.</p>
 
-  const titled = outline.sections.filter((section) => section.title !== null)
-  const outputWords = outline.sections.reduce((sum, section) => sum + section.outputWords, 0)
-  const notesWords = outline.sections.reduce((sum, section) => sum + section.notesWords, 0)
-  const largest = Math.max(1, ...titled.map((section) => section.outputWords))
   const copy = () => {
     void navigator.clipboard.writeText(outlineMarkdown(outline.title, outline.sections)).then(() => {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     })
   }
+  const toggle = (key: string) => setClosed((current) => {
+    const next = new Set(current)
+    if (!next.delete(key)) next.add(key)
+    return next
+  })
+  const parents = (nodes: OutlineNode[]): string[] => nodes.flatMap((node) => (node.children.length ? [node.key, ...parents(node.children)] : []))
 
   return (
     <div className="outline-panel">
       <header className="outline-head">
         <div className="outline-title">{outline.title}</div>
-        <div className="outline-totals">
-          {titled.length} {titled.length === 1 ? 'section' : 'sections'} · {outputWords.toLocaleString()} words
-          {notesWords > 0 && <> · {notesWords.toLocaleString()} in notes</>}
-        </div>
-        {titled.length > 0 && (
+        {tree.length > 0 && (
           <div className="outline-controls">
+            <span>
+              <button type="button" className="link-button" onClick={() => setClosed(new Set())}>Expand all</button>
+              {' · '}
+              <button type="button" className="link-button" onClick={() => setClosed(new Set(parents(tree)))}>Collapse all</button>
+            </span>
             <button type="button" className="link-button" onClick={copy} title="Copy the outline as a Markdown list">{copied ? 'Copied' : 'Copy'}</button>
           </div>
         )}
       </header>
-      {titled.length === 0
+      {tree.length === 0
         ? <p className="sidebar-empty">No sections yet. Each line starting with # starts a section.</p>
-        : (
-          <ol className="outline-sections">
-            {titled.map((section) => (
-              <li key={`${section.line}:${section.title}`}>
-                <button type="button" className="outline-section" onClick={() => onReveal(outline.path, section.line)}
-                  title={`${section.outputWords.toLocaleString()} words, ${section.notesWords.toLocaleString()} in notes`}>
-                  <span className="outline-section-title">{section.title}</span>
-                  <span className="outline-words">{section.outputWords.toLocaleString()}</span>
-                  <span className="outline-bar" aria-hidden="true">
-                    <span style={{ width: `${(section.outputWords / largest) * 100}%` }} />
-                  </span>
-                </button>
-                <HeadingList headings={section.headings} path={outline.path} onReveal={onReveal} />
-              </li>
-            ))}
-          </ol>
-        )}
+        : <OutlineBranch nodes={tree} depth={0} closed={closed} onToggle={toggle} onOpen={(line) => onReveal(outline.path, line)} />}
     </div>
   )
 }

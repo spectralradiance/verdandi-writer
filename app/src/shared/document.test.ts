@@ -200,3 +200,11 @@ describe('demoteHeadings', () => {
     expect(demoteHeadings('no headings', 2)).toBe('no headings')
   })
 })
+
+describe('section headings in a folder document', () => {
+  it('keeps every heading inside a marker-started section, whatever its level', () => {
+    const text = ['<!-- section: One {#a} -->', 'Text.', '', '### Stairs', '', 'More.', '', '#### Room', '', 'End.', '<!-- section: Two {#b} -->', 'Two.'].join('\n')
+    const [one] = splitSections(text).filter((section) => section.title !== null)
+    expect(one.headings.map((heading) => [heading.text, heading.level])).toEqual([['Stairs', 3], ['Room', 4]])
+  })
+})

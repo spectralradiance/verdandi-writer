@@ -1,9 +1,10 @@
 import { TriangleAlert, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { splitSections } from '../../shared/document'
 import { layerText } from '../../shared/layerStats'
-import { suggestTerms, type TermUse, trackTerms } from '../../shared/terms'
+import type { LexiconEntry } from '../../shared/ipc'
+import { suggestTerms, trackSavedWords, type TermUse, trackTerms } from '../../shared/terms'
 import { readPref, writePref } from './prefs'
 
 interface StatsTermsProps {
@@ -53,11 +54,20 @@ export function StatsTerms({ path, text, layerNames, layer, onOpenSection }: Sta
   const [terms, setTerms] = useState(() => readTerms(path))
   const [draft, setDraft] = useState('')
   const [suggested, setSuggested] = useState<string[] | null>(null)
+  const [lexicon, setLexicon] = useState<LexiconEntry[] | null>(null)
+  const [allSaved, setAllSaved] = useState(false)
+
+  useEffect(() => {
+    window.verdandi.lexicon.list().then(setLexicon, () => setLexicon([]))
+  }, [])
 
   const sections = useMemo(() => splitSections(text, layerNames).filter((section) => section.title !== null)
     .map((section) => ({ title: section.title!, line: section.line, text: layerText(section, layer, layerNames) })), [text, layerNames, layer])
   const uses = useMemo(() => trackTerms(sections, terms), [sections, terms])
   const titles = sections.map((section) => section.title)
+  const savedUses = useMemo(() => (lexicon ? trackSavedWords(sections, lexicon.map((entry) => entry.word)) : []), [sections, lexicon])
+  const savedEntry = (word: string) => lexicon?.find((entry) => entry.word.toLocaleLowerCase() === word.toLocaleLowerCase())
+  const savedShown = allSaved ? savedUses : savedUses.slice(0, 25)
 
   const save = (next: string[]) => {
     setTerms(next)
@@ -74,6 +84,53 @@ export function StatsTerms({ path, text, layerNames, layer, onOpenSection }: Sta
 
   return (
     <div className="settings-section">
+      <h3 className="stats-heading">Your saved words</h3>
+      {lexicon === null ? <p className="lexical-hint">Reading your saved words…</p> : lexicon.length === 0 ? (
+        <p className="lexical-hint">You have no saved words yet: save them from the Words panel, and this shows where this layer uses them.</p>
+      ) : (
+        <>
+          <p className="lexical-hint">
+            {savedUses.length.toLocaleString()} of your {lexicon.length.toLocaleString()} saved words are used here,
+            {' '}{savedUses.reduce((sum, use) => sum + use.total, 0).toLocaleString()} times in all; most used first.
+          </p>
+          {savedUses.length > 0 && (
+            <table className="settings-table stats-table terms-table">
+              <thead>
+                <tr><th>Word</th><th>Uses</th><th>Sections</th><th>First used</th><th className="terms-strip-head">Across the document</th><th /></tr>
+              </thead>
+              <tbody>
+                {savedShown.map((use) => {
+                  const entry = savedEntry(use.term)
+                  const tracked = terms.some((term) => term.toLowerCase() === use.term.toLowerCase())
+                  return (
+                    <tr key={use.term}>
+                      <td title={entry?.definition || undefined}>
+                        {use.term}
+                        {entry && entry.tags.length > 0 && <span className="lexical-hint terms-tags"> {entry.tags.join(', ')}</span>}
+                      </td>
+                      <td>{use.total.toLocaleString()}</td>
+                      <td>{use.sections}</td>
+                      <td>{sectionLink(use.first)}</td>
+                      <td><TermStrip use={use} titles={titles} /></td>
+                      <td>
+                        {!tracked && (
+                          <button type="button" className="link-button" title="Track it with this document’s terms, to see where it is defined"
+                            onClick={() => add(use.term)}>Track</button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+          {savedUses.length > savedShown.length && (
+            <button type="button" className="link-button" onClick={() => setAllSaved(true)}>Show all {savedUses.length.toLocaleString()}</button>
+          )}
+        </>
+      )}
+
+      <h3 className="stats-heading">This document’s terms</h3>
       <div className="terms-add">
         <input value={draft} placeholder="Add terms, separated by commas" aria-label="Add terms" onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {

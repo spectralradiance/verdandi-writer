@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { parseEtymology } from '../../shared/etymology'
 import type { DictionaryDownload, DictionaryEntry, DictionarySearchResult, DictionaryStatus, LexiconEntry } from '../../shared/ipc'
-import { matchesLexiconQuery, splitList } from '../../shared/lexicon'
 import { readPref, writePref } from './prefs'
+import { LexiconForm } from './LexiconForm'
+import { LexiconPage } from './LexiconPage'
 import { errorMessage } from './target'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, BookMarked } from 'lucide-react'
 
 export interface LexicalQuery {
   word: string
@@ -14,9 +15,9 @@ export interface LexicalQuery {
   source: string | null
 }
 
-type Tab = 'define' | 'etymology' | 'thesaurus' | 'lexicon' | 'external'
+type Part = 'define' | 'etymology' | 'thesaurus' | 'lexicon' | 'external'
 
-const TABS: { id: Tab; label: string }[] = [
+const PARTS: { id: Part; label: string }[] = [
   { id: 'define', label: 'Define' },
   { id: 'etymology', label: 'Etymology' },
   { id: 'thesaurus', label: 'Thesaurus' },
@@ -24,7 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'external', label: 'Web' },
 ]
 
-// Aisling's lookup table, https only.
+// Dictionary sites, https only.
 const EXTERNAL_SITES: { label: string; url: (word: string) => string }[] = [
   { label: 'Wiktionary', url: (word) => `https://en.wiktionary.org/wiki/${encodeURIComponent(word)}` },
   { label: 'Etymonline', url: (word) => `https://www.etymonline.com/search?q=${encodeURIComponent(word)}` },
@@ -86,18 +87,17 @@ interface LexicalPanelProps {
 }
 
 export function LexicalPanel({ query, onLookup, onReplace }: LexicalPanelProps) {
-  const [tab, setTab] = useState<Tab>(() => (readPref('lexicalTab') as Tab | null) ?? 'define')
+  // The part chosen last: a new word opens there.
+  const [current, setCurrent] = useState<Part>(() => (readPref('lexicalTab') as Part | null) ?? 'define')
+  const chosen = useRef<Part>(current)
   const [status, setStatus] = useState<DictionaryStatus | null>(null)
   const [entries, setEntries] = useState<DictionaryEntry[] | null>(null)
   const [lookupError, setLookupError] = useState<string | null>(null)
   const [lexicon, setLexicon] = useState<LexiconEntry[]>([])
   const [history, setHistory] = useState<string[]>([])
+  const [browsing, setBrowsing] = useState(false)
+  const body = useRef<HTMLDivElement>(null)
   const word = query?.word ?? null
-
-  const chooseTab = (next: Tab) => {
-    setTab(next)
-    writePref('lexicalTab', next)
-  }
 
   const refreshLexicon = useCallback(() => window.verdandi.lexicon.list().then(setLexicon, () => setLexicon([])), [])
 
@@ -126,6 +126,43 @@ export function LexicalPanel({ query, onLookup, onReplace }: LexicalPanelProps) 
     }
   }, [word, status])
 
+  const partTop = (part: Part) => {
+    const container = body.current
+    const element = container?.querySelector<HTMLElement>(`[data-part="${part}"]`)
+    return container && element ? element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop : null
+  }
+  const scrollTo = useCallback((part: Part) => {
+    const container = body.current
+    const top = partTop(part)
+    // The first part from the very top; the others with their title at the top.
+    if (container && top !== null) container.scrollTop = part === PARTS[0].id ? 0 : top
+  }, [])
+  const choose = (part: Part) => {
+    chosen.current = part
+    setCurrent(part)
+    writePref('lexicalTab', part)
+    scrollTo(part)
+  }
+
+  // A new word's parts open at the one chosen last, once its entries are there.
+  const shownWord = word && entries ? `${word}|${entries.length}|${entries[0]?.id ?? ''}` : word
+  useLayoutEffect(() => {
+    if (shownWord) scrollTo(chosen.current)
+  }, [shownWord, scrollTo])
+
+  // The tab of the part at the top of the column, as it scrolls; at the very end, the last part.
+  const onScroll = () => {
+    const container = body.current
+    if (!container) return
+    let at: Part = PARTS[0].id
+    for (const part of PARTS) {
+      const top = partTop(part.id)
+      if (top !== null && top <= container.scrollTop + 12) at = part.id
+    }
+    if (container.scrollTop > 0 && container.scrollTop + container.clientHeight >= container.scrollHeight - 2) at = PARTS[PARTS.length - 1].id
+    setCurrent(at)
+  }
+
   const lookUp = (next: string) => {
     if (word && next.toLocaleLowerCase() !== word.toLocaleLowerCase()) setHistory((items) => [...items.slice(-30), word])
     onLookup(next)
@@ -141,63 +178,79 @@ export function LexicalPanel({ query, onLookup, onReplace }: LexicalPanelProps) 
     () => (word ? lexicon.find((entry) => entry.word.toLocaleLowerCase() === word.toLocaleLowerCase()) ?? null : null),
     [lexicon, word],
   )
+  const ready = word !== null && status?.available === true && entries !== null
 
   return (
     <div className="lexical-panel" aria-label="Words">
       <header className="lexical-header">
         <button type="button" className="icon-button" onClick={back} disabled={history.length === 0} title="Back" aria-label="Back"><ArrowLeft size={14} aria-hidden="true" /></button>
         <SearchBox word={word} onLookup={lookUp} enabled={status?.available ?? false} />
+        <button type="button" className="icon-button" onClick={() => setBrowsing(true)} title="Saved words: browse, search and add" aria-label="Saved words">
+          <BookMarked size={14} aria-hidden="true" />
+        </button>
       </header>
-      <nav className="lexical-tabs" role="tablist">
-        {TABS.map((option) => (
-          <button key={option.id} type="button" role="tab" aria-selected={tab === option.id} onClick={() => chooseTab(option.id)}>
-            {option.label}
+      <nav className="lexical-tabs" aria-label="Parts">
+        {PARTS.map((part) => (
+          <button key={part.id} type="button" aria-current={current === part.id ? 'true' : undefined} onClick={() => choose(part.id)}>
+            {part.label}
           </button>
         ))}
       </nav>
 
-      <div className="lexical-body">
-        {status && !status.available && tab !== 'lexicon' && tab !== 'external' && (
+      <div className="lexical-body lexical-column" ref={body} onScroll={onScroll}>
+        {status && !status.available && (
           <div className="lexical-message">
             <p>{status.error}</p>
             <DictionaryDownloader onReady={setStatus} />
             <button type="button" className="link-button" onClick={() => void window.verdandi.dictionary.choose().then(setStatus)}>or choose an existing wiktionary.db…</button>
           </div>
         )}
-        {!word && tab !== 'lexicon' && status?.available && (
-          <p className="lexical-message">Select a word, or press Ctrl+D with the cursor on one.</p>
-        )}
+        {!word && status?.available && <p className="lexical-message">Select a word, or press Ctrl+D with the cursor on one.</p>}
         {lookupError && <p className="lexical-message status-error">{lookupError}</p>}
 
-        {word && status?.available && entries && tab === 'define' && <DefineTab word={word} entries={entries} saved={saved} />}
-        {word && status?.available && entries && tab === 'etymology' && <EtymologyTab word={word} entries={entries} onLookup={lookUp} />}
-        {word && status?.available && entries && tab === 'thesaurus' && (
-          <ThesaurusTab entries={entries} saved={saved} onLookup={lookUp} onReplace={onReplace} />
-        )}
-        {tab === 'lexicon' && (
-          <LexiconTab
-            query={query}
-            entries={entries}
-            saved={saved}
-            lexicon={lexicon}
-            onLookup={lookUp}
-            onChanged={() => void refreshLexicon()}
-          />
-        )}
-        {word && tab === 'external' && (
-          <ul className="lexical-links">
-            {EXTERNAL_SITES.map((site) => (
-              <li key={site.label}>
-                <button type="button" className="link-button" onClick={() => window.open(site.url(word), '_blank')}>
-                  {site.label} ↗
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <section data-part="define" className="lexical-part">
+          {ready ? <DefineTab word={word} entries={entries} saved={saved} /> : <PartTitle>Define</PartTitle>}
+        </section>
+        <section data-part="etymology" className="lexical-part">
+          <PartTitle>Etymology</PartTitle>
+          {ready && <EtymologyTab word={word} entries={entries} onLookup={lookUp} />}
+        </section>
+        <section data-part="thesaurus" className="lexical-part">
+          <PartTitle>Thesaurus</PartTitle>
+          {ready && <ThesaurusTab entries={entries} saved={saved} onLookup={lookUp} onReplace={onReplace} />}
+        </section>
+        <section data-part="lexicon" className="lexical-part">
+          <PartTitle>Lexicon</PartTitle>
+          <LexiconPart query={query} entries={entries} saved={saved} count={lexicon.length} onChanged={() => void refreshLexicon()} onBrowse={() => setBrowsing(true)} />
+        </section>
+        <section data-part="external" className="lexical-part lexical-part-last">
+          <PartTitle>Web</PartTitle>
+          {word ? (
+            <ul className="lexical-links">
+              {EXTERNAL_SITES.map((site) => (
+                <li key={site.label}>
+                  <button type="button" className="link-button" onClick={() => window.open(site.url(word), '_blank')}>
+                    {site.label} ↗
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="lexical-message">Look up a word to open it on these sites.</p>}
+        </section>
       </div>
+      {browsing && (
+        <LexiconPage lexicon={lexicon} initialWord={word} onChanged={() => void refreshLexicon()} onClose={() => setBrowsing(false)}
+          onLookup={(next) => {
+            setBrowsing(false)
+            lookUp(next)
+          }} />
+      )}
     </div>
   )
+}
+
+function PartTitle({ children }: { children: ReactNode }) {
+  return <h3 className="lexical-section-title">{children}</h3>
 }
 
 function SearchBox({ word, onLookup, enabled }: { word: string | null; onLookup: (word: string) => void; enabled: boolean }) {
@@ -368,113 +421,28 @@ function ThesaurusTab({ entries, saved, onLookup, onReplace }: {
   )
 }
 
-function LexiconTab({ query, entries, saved, lexicon, onLookup, onChanged }: {
+function LexiconPart({ query, entries, saved, count, onChanged, onBrowse }: {
   query: LexicalQuery | null
   entries: DictionaryEntry[] | null
   saved: LexiconEntry | null
-  lexicon: LexiconEntry[]
-  onLookup: (word: string) => void
+  count: number
   onChanged: () => void
+  onBrowse: () => void
 }) {
-  const [filter, setFilter] = useState('')
   const [message, setMessage] = useState<string | null>(null)
-  const [location, setLocation] = useState('')
-
-  useEffect(() => {
-    void window.verdandi.lexicon.location().then(setLocation)
-  }, [])
-
-  const importAisling = () => {
-    window.verdandi.lexicon.importAisling().then((result) => {
-      if (!result) return
-      setMessage(`Imported ${result.imported} word${result.imported === 1 ? '' : 's'}; skipped ${result.skipped}.`)
-      onChanged()
-    }, (error: unknown) => setMessage(errorMessage(error)))
-  }
-
-  const shown = lexicon.filter((entry) => matchesLexiconQuery(entry, filter))
   return (
     <div className="lexical-lexicon">
-      {query && (
-        <SaveForm key={`${query.word}|${saved?.added ?? ''}`} query={query} entries={entries} saved={saved} onSaved={(text) => {
-          setMessage(text)
-          onChanged()
-        }} />
-      )}
+      {query ? (
+        <LexiconForm key={`${query.word}|${saved?.added ?? ''}|${entries ? 'entries' : ''}`} word={query.word} context={query.context} source={query.source}
+          entries={entries} saved={saved} onSaved={(text) => {
+            setMessage(text)
+            onChanged()
+          }} />
+      ) : <p className="lexical-message">Look up a word to save it.</p>}
       {message && <p className="lexical-message">{message}</p>}
-      <div className="lexicon-list-head">
-        <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search · tag: syn: word: def:" />
-        <span>{shown.length}/{lexicon.length}</span>
-      </div>
-      <ul className="lexicon-list">
-        {shown.map((entry) => (
-          <li key={entry.word}>
-            <button type="button" onClick={() => onLookup(entry.word)}>
-              <strong>{entry.word}</strong>
-              {entry.tags.length > 0 && <em>{entry.tags.join(', ')}</em>}
-              <span>{entry.definition}</span>
-            </button>
-          </li>
-        ))}
-        {lexicon.length === 0 && <li className="lexical-message">No saved words yet.</li>}
-      </ul>
-      <footer className="lexicon-footer">
-        <button type="button" className="link-button" onClick={importAisling}>Import Aisling vocabulary…</button>
-        <span title={location}>Stored in {location}</span>
-      </footer>
+      <button type="button" className="link-button" onClick={onBrowse}>
+        {count ? `Browse your ${count.toLocaleString()} saved word${count === 1 ? '' : 's'}…` : 'Saved words…'}
+      </button>
     </div>
-  )
-}
-
-function SaveForm({ query, entries, saved, onSaved }: {
-  query: LexicalQuery
-  entries: DictionaryEntry[] | null
-  saved: LexiconEntry | null
-  onSaved: (message: string) => void
-}) {
-  const firstGloss = entries?.flatMap((entry) => entry.senses.flatMap((sense) => sense.glosses))[0] ?? ''
-  const [definition, setDefinition] = useState(saved?.definition ?? firstGloss)
-  const [tags, setTags] = useState(saved?.tags.join(', ') ?? '')
-  const [synonyms, setSynonyms] = useState(saved?.synonyms.join(', ') ?? '')
-  const [context, setContext] = useState(saved?.context || query.context)
-  const [note, setNote] = useState(saved?.note ?? '')
-  const [busy, setBusy] = useState(false)
-
-  const save = () => {
-    setBusy(true)
-    const word = saved?.word ?? entries?.[0]?.word ?? query.word
-    window.verdandi.lexicon.save({
-      word,
-      definition,
-      tags: splitList(tags),
-      synonyms: splitList(synonyms),
-      context,
-      source: saved?.source ?? query.source,
-      added: saved?.added ?? '',
-      note,
-    }).then(
-      () => onSaved(saved ? `Updated “${word}”.` : `Saved “${word}” to your lexicon.`),
-      (error: unknown) => onSaved(errorMessage(error)),
-    ).finally(() => setBusy(false))
-  }
-
-  const remove = () => {
-    if (!saved || !window.confirm(`Move “${saved.word}” to the Recycle Bin?`)) return
-    window.verdandi.lexicon.remove(saved.word).then(() => onSaved(`Removed “${saved.word}”.`), (error: unknown) => onSaved(errorMessage(error)))
-  }
-
-  return (
-    <form className="lexicon-form" onSubmit={(event) => { event.preventDefault(); save() }}>
-      <h2 className="lexical-word">{saved?.word ?? query.word}</h2>
-      <label>Definition<textarea rows={2} value={definition} onChange={(event) => setDefinition(event.target.value)} /></label>
-      <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="emotion, cosmology" /></label>
-      <label>Synonyms<input value={synonyms} onChange={(event) => setSynonyms(event.target.value)} /></label>
-      <label>Context<textarea rows={2} value={context} onChange={(event) => setContext(event.target.value)} /></label>
-      <label>Note<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      <div className="lexicon-actions">
-        <button type="submit" disabled={busy}>{saved ? 'Update' : 'Save word'}</button>
-        {saved && <button type="button" onClick={remove}>Remove</button>}
-      </div>
-    </form>
   )
 }

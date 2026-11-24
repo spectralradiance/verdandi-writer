@@ -66,13 +66,13 @@ export function lexiconFileName(word: string): string {
   return `${safe || '_'}.md`
 }
 
-/** Splits Aisling-style lists ("a, b; c") into items. */
+/** Splits lists ("a, b; c") into items. */
 export function splitList(value: string): string[] {
   return [...new Set(value.split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean))]
 }
 
 /**
- * Aisling-style search: plain text matches word, definition, tags and synonyms;
+ * Lexicon search: plain text matches word, definition, tags and synonyms;
  * `word:`, `def:`, `tag:` and `syn:` prefixes restrict to one field. All terms must match.
  */
 export function matchesLexiconQuery(entry: LexiconEntry, query: string): boolean {

@@ -376,8 +376,6 @@ export interface VerdandiApi {
     list(): Promise<LexiconEntry[]>
     save(entry: LexiconEntry): Promise<LexiconEntry>
     remove(word: string): Promise<void>
-    /** Imports an Aisling Vocabulary folder chosen by the user; null if cancelled. */
-    importAisling(): Promise<{ imported: number; skipped: number } | null>
   }
   ai: {
     settings(): Promise<AiSettingsState>
@@ -468,7 +466,6 @@ export const IPC = {
   lexiconList: 'lexicon:list',
   lexiconSave: 'lexicon:save',
   lexiconRemove: 'lexicon:remove',
-  lexiconImportAisling: 'lexicon:import-aisling',
   aiSettings: 'ai:settings',
   aiSaveConfig: 'ai:save-config',
   aiSetKey: 'ai:set-key',

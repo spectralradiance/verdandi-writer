@@ -103,3 +103,36 @@ export function suggestTerms(text: string, known: readonly string[] = [], limit 
     .slice(0, limit)
     .map((entry) => entry.term)
 }
+
+/**
+ * Where each saved word is used, like `trackTerms` but quick for a long list: each
+ * section's words are counted once, and one-word entries are looked up in the
+ * counts (with a plural `s` or `es`). Only words used at all are returned, most used
+ * first. A saved word's definition is not looked for, so `defined` is null.
+ */
+export function trackSavedWords(sections: readonly TermSection[], words: readonly string[]): TermUse[] {
+  const counted = sections.map((section) => {
+    const counts = new Map<string, number>()
+    for (const match of section.text.toLocaleLowerCase().matchAll(/[\p{L}\p{N}]+/gu)) counts.set(match[0], (counts.get(match[0]) ?? 0) + 1)
+    return counts
+  })
+  const single = words.filter((word) => /^[\p{L}\p{N}]+$/u.test(word.trim()))
+  const several = words.filter((word) => word.trim() && !/^[\p{L}\p{N}]+$/u.test(word.trim()))
+  const uses: TermUse[] = single.map((raw) => {
+    const word = raw.trim()
+    const key = word.toLocaleLowerCase()
+    const counts = counted.map((map) => (map.get(key) ?? 0) + (map.get(`${key}s`) ?? 0) + (map.get(`${key}es`) ?? 0))
+    const first = counts.findIndex((count) => count > 0)
+    return {
+      term: word,
+      counts,
+      total: counts.reduce((sum, count) => sum + count, 0),
+      sections: counts.filter((count) => count > 0).length,
+      first: first < 0 ? null : first,
+      defined: null,
+      beforeDefinition: false,
+    }
+  })
+  uses.push(...trackTerms(sections, several).map((use) => ({ ...use, defined: null, beforeDefinition: false })))
+  return uses.filter((use) => use.total > 0).sort((a, b) => b.total - a.total || a.term.localeCompare(b.term))
+}

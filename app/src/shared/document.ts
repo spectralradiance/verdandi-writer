@@ -157,7 +157,10 @@ function computeSections(text: string, layers?: LayerNames): DocSection[] {
       outputWords: countWords(outputText) + (title === null || named ? 0 : countWords(lines[headingLine - 1])),
       notesWords: countWords(notesText),
       layerWords,
-      headings: headings.filter((heading) => heading.line > headingLine && heading.line <= to && heading.level > level),
+      // A section started by a marker (a folder document's) keeps every heading inside it, whatever
+      // its level; one started by a heading keeps those deeper than the section level.
+      headings: headings.filter((heading) => heading.line > headingLine && heading.line <= to
+        && (named ? !(heading.text === title && heading.line <= headingLine + 2) : heading.level > level)),
     }
   }
 

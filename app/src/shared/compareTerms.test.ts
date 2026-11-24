@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { compareLayers, compareSentences, splitSentences } from './compareLayers'
-import { suggestTerms, trackTerms } from './terms'
+import { suggestTerms, trackSavedWords, trackTerms } from './terms'
 
 describe('splitSentences', () => {
   it('splits paragraphs and sentences, evening out whitespace', () => {
@@ -63,5 +63,17 @@ describe('suggestTerms', () => {
   it('leaves out quoted speech', () => {
     const text = '"Does it get tired?" she asked. "To fix the set," he said. "To fix the set," again. Call it the "hum" and the "hum" stays.'
     expect(suggestTerms(text)).toEqual(['hum'])
+  })
+})
+
+describe('trackSavedWords', () => {
+  it('counts saved words with plurals, multi-word ones too, most used first, leaving out unused ones', () => {
+    const sections = [
+      { title: 'A', line: 1, text: 'Lamps and a lamp. The wireless man.' },
+      { title: 'B', line: 5, text: 'Another lamp; the Wireless Man again.' },
+    ]
+    expect(trackSavedWords(sections, ['lamp', 'wireless man', 'beacon']).map((use) => [use.term, use.counts])).toEqual([
+      ['lamp', [2, 1]], ['wireless man', [1, 1]],
+    ])
   })
 })

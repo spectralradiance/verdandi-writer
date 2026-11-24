@@ -154,6 +154,8 @@ export function SectionGrid({
   /** Work for an editor that is not mounted yet (a hidden side being shown). */
   const pending = useRef(new Map<string, (handle: MarkdownEditorHandle) => void>())
   const active = useRef<{ id: number; kind: CellKind } | null>(null)
+  /** The section whose sentence is highlighted while reading aloud. */
+  const speaking = useRef<number | null>(null)
   /** While text is set from outside, editors report edits the model already has. */
   const applying = useRef(false)
   const resyncTimer = useRef<number | undefined>(undefined)
@@ -592,6 +594,35 @@ export function SectionGrid({
     findStep: (direction) => finder()?.findStep(direction) ?? { total: 0, current: 0, invalid: false },
     replaceStep: (query, replacement) => finder()?.replaceStep(query, replacement) ?? { total: 0, current: 0, invalid: false },
     replaceEvery: (query, replacement) => finder()?.replaceEvery(query, replacement) ?? 0,
+    markSpeech: (range) => activeHandle()?.markSpeech(range),
+    // Reading aloud: the sections in view (not collapsed ones), from the cursor if it is on
+    // screen in the focus layer, else from the section at the top of the screen.
+    speechRows: () => {
+      const list = rows.current.filter((row, index) => inView(row, index) && (pageMode || !view.collapsed.includes(row.key)))
+      const top = grid.current?.getBoundingClientRect().top ?? 0
+      const bottom = grid.current?.getBoundingClientRect().bottom ?? window.innerHeight
+      const element = (id: number) => grid.current?.querySelector<HTMLElement>(`.section-main > .section-row[data-row="${id}"]`)
+      const onScreen = (id: number) => {
+        const rect = element(id)?.getBoundingClientRect()
+        return rect ? rect.bottom > top && rect.top < bottom : false
+      }
+      let start: { id: number; offset: number } | null = null
+      const current = active.current
+      const handle = current ? handles.current.get(cellKey(current.id, current.kind)) : undefined
+      if (current && handle && current.kind === primary && list.some((row) => row.id === current.id) && onScreen(current.id)) {
+        start = { id: current.id, offset: handle.cursor() }
+      } else {
+        const first = list.find((row) => onScreen(row.id))
+        if (first) start = { id: first.id, offset: 0 }
+      }
+      return { rows: list.map((row) => ({ id: row.id, text: row.cells[primary]?.text ?? '' })), start }
+    },
+    markSpeechIn: (id, range) => {
+      const previous = speaking.current
+      if (previous !== null && previous !== id) handles.current.get(cellKey(previous, primary))?.markSpeech(null)
+      speaking.current = id
+      if (id !== null) withCell(id, primary, (handle) => handle.markSpeech(range))
+    },
   }))
 
   const changeView = (change: (current: DocumentView) => DocumentView) => parent.current.onViewChange(change)
