@@ -15,7 +15,6 @@ import { SectionGrid } from './editor/SectionGrid'
 import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { ViewControls } from './ViewControls'
-import { ArrangeViewDialog } from './ArrangeView'
 import { FieldsDialog, FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
 import { History, X } from 'lucide-react'
 
@@ -165,7 +164,7 @@ export function DocumentPane({
   const [view, setView] = useState<DocumentView | null>(null)
   const [savedViews, setSavedViews] = useState<SavedView[]>([])
   const [activeView, setActiveView] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | 'arrange' | null>(null)
+  const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
   const [layerBusy, setLayerBusy] = useState(false)
   const [layerError, setLayerError] = useState<string | null>(null)
   /** The section whose fields are being edited, by its id. */
@@ -556,27 +555,11 @@ export function DocumentPane({
               setActiveView(null)
             }}
             onFilter={() => setDialog('filter')}
-            onArrange={() => setDialog('arrange')}
             onManageLayers={loaded.document.folder ? () => setDialog('layers') : undefined}
           />
         )}
         {headerActions}
       </header>
-      {dialog === 'arrange' && view && loaded && (
-        <ArrangeViewDialog
-          layers={loaded.document.layers ?? [NOTES_LAYER]}
-          view={view}
-          onClose={() => setDialog(null)}
-          onApply={(next) => {
-            changeView(() => next)
-            setDialog(null)
-          }}
-          onSaveAs={loaded.document.folder ? (next) => {
-            changeView(() => next)
-            setDialog('save')
-          } : undefined}
-        />
-      )}
       {dialog === 'save' && view && (
         <SaveViewDialog
           taken={savedViews.map((saved) => saved.name)}
@@ -690,7 +673,6 @@ export function DocumentPane({
           onViewChange={changeView}
           fields={loaded.document.fields}
           onManageLayers={loaded.document.folder && mode === 'edit' ? () => setDialog('layers') : undefined}
-          onArrange={() => setDialog('arrange')}
           onEditFields={loaded.document.folder && mode === 'edit' ? (id, title) => setEditingFields({ id, title }) : undefined}
           onDocChanged={onDocChanged}
           onSave={() => void save()}

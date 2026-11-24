@@ -5,7 +5,7 @@ import { defaultView, fieldValues, foldColumns, matchesFilter, normalizeView, pa
 describe('views', () => {
   it('normalizes a stored view against the document’s layers', () => {
     expect(normalizeView({ primary: 'gone', layout: 'stacked', hidden: ['a'], columns: [{ layers: ['notes', 'notes', 'x'] }] }, ['notes'])).toEqual({
-      primary: 'output', under: [], columns: [{ layers: ['notes'], mode: 'tabs', active: 'notes', width: 1 }], sideHidden: false, primaryWidth: 1,
+      primary: 'output', under: [], columns: [{ layers: ['notes'], mode: 'tabs', active: 'notes', width: 1 }], sideHidden: false, beside: 'notes', primaryWidth: 1,
       layout: 'stacked', page: null, hidden: ['a'], collapsed: [], filter: {},
     })
     // Each layer in one place at most; at most two columns; empty ones dropped.

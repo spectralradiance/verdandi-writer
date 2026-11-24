@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webUtils } from 'electron'
 
 import type { AiEvent } from '../shared/ai'
-import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type SidecarStatus } from '../shared/ipc'
+import { type DailyWords, type DictionaryDownload, IPC, type VerdandiApi, type SearchStatus, type SidecarStatus, type WorkspaceState } from '../shared/ipc'
 
 const api: VerdandiApi = {
   preferences: {
@@ -26,6 +26,13 @@ const api: VerdandiApi = {
     get: () => ipcRenderer.invoke(IPC.workspaceGet),
     addRoot: () => ipcRenderer.invoke(IPC.workspaceAddRoot),
     removeRoot: (path) => ipcRenderer.invoke(IPC.workspaceRemoveRoot, path),
+    onChanged: (listener) => {
+      const handler = (_event: IpcRendererEvent, state: WorkspaceState): void => listener(state)
+      ipcRenderer.on(IPC.workspaceChanged, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceChanged, handler)
+      }
+    },
   },
   files: {
     read: (path, options) => ipcRenderer.invoke(IPC.filesRead, path, options),

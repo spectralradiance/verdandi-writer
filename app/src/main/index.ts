@@ -31,6 +31,7 @@ import { buildWiktionary } from './wiktionaryBuilder'
 import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
 import { StyleHistory } from './styleHistory'
 import { WorkspaceWatcher } from './watcher'
+import { launchCandidates, planLaunch } from './launchPaths'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
   createFolder, readFolder, renameFile, renameFolder, restoreFile, trashFile, type TrashedFile, validateName,
@@ -227,7 +228,23 @@ function registerLocalFileProtocol(): void {
 }
 
 function workspaceState(): WorkspaceState {
-  return { roots: settings.get().workspaceRoots }
+  return { roots: settings.get().workspaceRoots, open: launchOpen }
+}
+
+/** The document named when Verdandi was started, until the window has asked for it. */
+let launchOpen: string | null = null
+/** Settles once the command line has been applied, so the window's first look at the workspace includes it. */
+let launchReady: Promise<void> = Promise.resolve()
+
+/** Adds the folders and files named on a command line to the workspace; returns the document to open. */
+async function applyLaunch(argv: readonly string[]): Promise<string | null> {
+  const skip = [process.execPath, app.getAppPath()]
+  const plan = await planLaunch(settings.get().workspaceRoots, launchCandidates(argv.slice(1), process.env.VERDANDI_OPEN, skip), isFolderDocument)
+  if (plan.roots.length !== settings.get().workspaceRoots.length) {
+    settings.update({ workspaceRoots: plan.roots })
+    rootsChanged()
+  }
+  return plan.open
 }
 
 function createWindow(): void {
@@ -284,7 +301,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sidecarStop, () => sidecar.stop())
   ipcMain.handle(IPC.sidecarInstallTorch, (_event, index: unknown) => sidecar.installTorch(text(index)))
 
-  ipcMain.handle(IPC.workspaceGet, () => workspaceState())
+  ipcMain.handle(IPC.workspaceGet, async () => {
+    await launchReady
+    const state = workspaceState()
+    launchOpen = null
+    return state
+  })
   ipcMain.handle(IPC.workspaceAddRoot, async (event) => {
     const options: OpenDialogOptions = {
       title: 'Add folder to workspace',
@@ -357,7 +379,10 @@ function registerIpc(): void {
     }
     return target
   })
-  ipcMain.handle(IPC.foldersRead, (_event, folder: unknown) => readFolder(guard.resolve(folder)))
+  ipcMain.handle(IPC.foldersRead, async (_event, folder: unknown) => {
+    const target = guard.resolve(folder)
+    return { ...await readFolder(target), document: await isFolderDocument(target) }
+  })
   ipcMain.handle(IPC.foldersCreate, (_event, parent: unknown, name: unknown) =>
     createFolder(guard.resolve(parent), text(name)))
   ipcMain.handle(IPC.dictionaryStatus, () => (dictionary ? dictionaryStatus() : openDictionary()))
@@ -567,8 +592,17 @@ sidecar.on('status', (status) => {
   mainWindow?.webContents.send(IPC.sidecarStatusChanged, status)
 })
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
   if (!mainWindow) return
+  // Started again with something to open: VERDANDI_OPEN belongs to the first start, so only the arguments count.
+  const window = mainWindow
+  void planLaunch(settings.get().workspaceRoots, launchCandidates(argv.slice(1), undefined, [process.execPath, app.getAppPath()]), isFolderDocument).then((plan) => {
+    if (plan.roots.length !== settings.get().workspaceRoots.length) {
+      settings.update({ workspaceRoots: plan.roots })
+      rootsChanged()
+    }
+    window.webContents.send(IPC.workspaceChanged, { roots: settings.get().workspaceRoots, open: plan.open })
+  })
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
 })
@@ -594,6 +628,9 @@ void app.whenReady().then(() => {
   registerLocalFileProtocol()
   registerIpc()
   void BackupStore.prune(backupsDir, BACKUP_RETENTION_DAYS)
+  launchReady = applyLaunch(process.argv).then((open) => {
+    launchOpen = open
+  }, () => {})
   void prompts.ensureDefaults()
   createWindow()
   watcher.setRoots(settings.get().workspaceRoots)

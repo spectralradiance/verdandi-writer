@@ -58,6 +58,8 @@ export interface SidecarStatus {
 
 export interface WorkspaceState {
   roots: string[]
+  /** A document Verdandi was asked to open (named when it was started), once. */
+  open?: string | null
 }
 
 export type TextEncodingName = 'utf-8' | 'utf-8-bom' | 'utf-16le' | 'utf-16be' | 'windows-1252'
@@ -110,6 +112,8 @@ export interface WriteRequest {
 export interface FolderListing {
   folders: string[]
   files: string[]
+  /** The folder is itself a document folder (its main file is named after it). */
+  document?: boolean
 }
 
 export type WriteResult =
@@ -300,6 +304,8 @@ export interface VerdandiApi {
     get(): Promise<WorkspaceState>
     addRoot(): Promise<WorkspaceState>
     removeRoot(path: string): Promise<WorkspaceState>
+    /** The workspace changed from outside: Verdandi was started again with folders or files to open. */
+    onChanged(listener: (state: WorkspaceState) => void): () => void
   }
   files: {
     read(path: string, options?: { allowMissing?: boolean }): Promise<TextDocument>
@@ -434,6 +440,7 @@ export const IPC = {
   filesReveal: 'files:reveal',
   foldersTrash: 'folders:trash',
   foldersRead: 'folders:read',
+  workspaceChanged: 'workspace:changed',
   foldersCreate: 'folders:create',
   foldersRename: 'folders:rename',
   documentsCreate: 'documents:create',

@@ -1,7 +1,7 @@
-import { Bookmark, Columns2, FileText, Images, Layers, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
+import { Bookmark, FileText, Images, Layers, ListTree, type LucideIcon, NotebookPen } from 'lucide-react'
 
 import type { Layer, LayerKind } from '../../shared/layers'
-import { type DocumentView, placeLayer, sameView, type SavedView, showLayer } from '../../shared/views'
+import { type DocumentView, placeLayer, sameView, type SavedView } from '../../shared/views'
 import { kindLabel } from './editor/SectionGrid'
 import { DropdownMenu, type MenuItem } from './menu'
 import { IconButton } from './Toolbar'
@@ -22,33 +22,25 @@ interface ViewControlsProps {
   onUpdate: (name: string) => void
   onDelete: (name: string) => void
   onFilter: () => void
-  /** Opens the screen that arranges the view's columns. */
-  onArrange: () => void
   /** Add, rename or delete layers; absent for a one-file document. */
   onManageLayers?: () => void
 }
 
 /**
- * The view controls in the document header: which layer comes first in each row,
- * whether the columns beside it show, the way to arrange them, and the saved views.
+ * The view controls in the document header: which layer each section shows, where
+ * a section's other layers open (beside it or under it), and the saved views.
  */
-export function ViewControls({ layers, view, onView, saved, activeName, onApply, onSaveAs, onUpdate, onDelete, onFilter, onArrange, onManageLayers }: ViewControlsProps) {
+export function ViewControls({ layers, view, onView, saved, activeName, onApply, onSaveAs, onUpdate, onDelete, onFilter, onManageLayers }: ViewControlsProps) {
   const kinds = ['output', ...layers.map((layer) => layer.name)]
   const iconOf = (kind: string) => (kind === 'output' ? FileText : KIND_ICON[layers.find((layer) => layer.name === kind)?.kind ?? 'prose'])
-  const sideShown = view.columns.length > 0 && !view.sideHidden
-  const others = kinds.filter((kind) => kind !== view.primary)
 
   // The layer that was first takes the chosen one's place, so switching back and forth keeps both in sight.
   const choosePrimary = (kind: string) => onView((current) => placeLayer(current, kind, { at: 'primary' }))
-  const toggleSide = () => onView((current) => (
-    current.columns.length === 0 ? (others[0] ? showLayer(current, others[0]) : current) : { ...current, sideHidden: !current.sideHidden }
-  ))
 
   const layerItems: MenuItem[] = [
-    { label: 'Arrange view…', title: 'Which layers show in which column, as tabs or stacked, and how wide', onClick: onArrange },
-    { heading: 'Layout' },
-    { label: 'Side by side', checked: view.layout === 'side', onClick: () => onView((current) => ({ ...current, layout: 'side' })) },
-    { label: 'Stacked', checked: view.layout === 'stacked', title: 'The other columns under each section’s first one', onClick: () => onView((current) => ({ ...current, layout: 'stacked' })) },
+    { heading: 'A section’s other layers open' },
+    { label: 'Beside it', checked: view.layout === 'side', onClick: () => onView((current) => ({ ...current, layout: 'side' })) },
+    { label: 'Under it', checked: view.layout === 'stacked', title: 'Under the section’s text, the full width', onClick: () => onView((current) => ({ ...current, layout: 'stacked' })) },
   ]
   if (onManageLayers) layerItems.push('separator', { label: 'Manage layers…', title: 'Add, rename or delete this document’s layers', onClick: onManageLayers })
 
@@ -92,15 +84,8 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
             aria-pressed={view.primary === kind} onClick={() => choosePrimary(kind)} />
         ))}
       </div>
-      <IconButton
-        icon={Columns2}
-        label={sideShown ? 'Hide the side columns' : 'Show the side columns'}
-        title={`${sideShown ? 'Hide' : 'Show'} the columns beside the text; the tabs over the rows choose what they show. Ctrl+Alt+N moves between a section’s layers.`}
-        aria-pressed={sideShown}
-        onClick={toggleSide}
-      />
       <DropdownMenu items={layerItems} trigger={(
-        <button type="button" className="tool-button" aria-label="Layers" title="Arrange the columns, and their layout"><Layers size={16} strokeWidth={1.8} aria-hidden="true" /></button>
+        <button type="button" className="tool-button" aria-label="Layers" title="Where a section’s other layers open; manage the layers"><Layers size={16} strokeWidth={1.8} aria-hidden="true" /></button>
       )} />
       <DropdownMenu items={viewItems} trigger={(
         <button type="button" className={`tool-button${filterEntries.length || view.hidden.length ? ' tool-button-flag' : ''}`} aria-label="Views"
