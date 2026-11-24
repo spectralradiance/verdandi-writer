@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { layerMaterial, moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
@@ -60,6 +60,8 @@ function applyAppearance(preferences: Preferences) {
 export function App() {
   const [status, setStatus] = useState<SidecarStatus | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceState>({ roots: [] })
+  /** Opens a document named at launch; the latest `open`, for the workspace subscriptions. */
+  const openNamed = useRef<(path: string) => void>(() => {})
   const [target, setTarget] = useState<OpenTarget | null>(() => parseTarget(readPref('openTarget')))
   const [live, setLive] = useState(() => readPref('live') !== 'false')
   const [focusMode, setFocusMode] = useState(false)
@@ -110,7 +112,13 @@ export function App() {
       setPreferences(stored)
     })
     void window.verdandi.workspace.get().then((initial) => {
+      // A document named at launch opens even if this effect has been torn down meanwhile: it is handed out once.
+      if (initial.open) openNamed.current(initial.open)
       if (alive) setWorkspace(initial)
+    })
+    const unsubscribeWorkspace = window.verdandi.workspace.onChanged((next) => {
+      setWorkspace(next)
+      if (next.open) openNamed.current(next.open)
     })
     const today = (days: { notes: number; output: number }[]) => {
       const last = days.at(-1)
@@ -124,6 +132,7 @@ export function App() {
       alive = false
       unsubscribe()
       unsubscribeStats()
+      unsubscribeWorkspace()
     }
   }, [])
 
@@ -144,6 +153,10 @@ export function App() {
     if (!saved && !window.confirm('Some changes could not be saved. Open the other file anyway and lose them?')) return
     changeTarget(next)
   }, [target, flushAll, changeTarget])
+
+  useLayoutEffect(() => {
+    openNamed.current = (path) => void open({ path })
+  })
 
   const [undo, setUndo] = useState<{ undoId: string; title: string; path: string } | null>(null)
   /** A one-file document just made into a document folder, which can still be undone. */
@@ -625,7 +638,7 @@ export function App() {
           className="fixed bottom-10 left-4 z-20 flex items-center gap-2.5 rounded-md border border-border bg-raised py-1.5 pr-2 pl-3.5 text-[13px] shadow-[0_8px_24px_rgb(0_0_0/0.22)]"
           role="status"
         >
-          <span>“{folderName(converted.original).replace(/\.[^.]+$/, '')}” is now a folder with a file for each section.</span>
+          <span>“{folderName(converted.original).replace(/\.[^.]+$/, '')}” is now a document folder: its text, and a file for its notes.</span>
           <button type="button" onClick={() => void undoConversion()}>Undo</button>
           <button type="button" className="icon-button" onClick={() => setConverted(null)} aria-label="Dismiss"><X size={14} aria-hidden="true" /></button>
         </div>

@@ -547,8 +547,24 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Arrange view** gives the first column a width slider too, and its columns wrap in a narrow window.
   - **Local model downloads:** progress counts the files where Windows keeps them without links (it read 0% for a model already on disk), says it is checking when the model is all there, and leaves out partial files a stopped download abandoned; once the model is complete, those are removed. The 7B default was checked end to end: loaded and answered in 24 s.
   - **README:** choosing a local model, with download sizes and GPU memory, and how the first download behaves.
+- **Done, Phase 9 steps 1–3 and part of 4–6, 2026-11-23:**
+  - **Model** (`shared/layerFiles.ts`): the main file and layer files read into the working text and split back from it; name matching with strays, duplicates in order, and one rename paired when the stray sits between two headings the layer has (or the layer has every section but one). A gap in a sparse layer is not taken for a rename.
+  - **Disk side** (`main/layerDocument.ts`): saving writes only files whose content changed (spacing alone doesn't count); layer files are written before the main file; a section renamed in Verdandi is renamed in every file and its fields follow it; a repeated new name gets " (2)"; strays are kept at the end of their file. Section ids are made from names, and a save hands the editor the new ids and fields.
+  - **Layers:** adding declares; renaming renames a default-named file; deleting trashes the file after a backup. Renaming the document renames its default-named layer files.
+  - **Conversion:** a §3b folder converts when the editor opens it (search and stats read it as it is until then), once however many reads arrive together; its earlier files, and anything already where a layer file goes, move to `.verdandi/converted/`. Sections become level 1 when level 2 headings are used inside them. One-file documents convert with "Make this a document", a lone `#` title above `##` chapters staying the title. The samples are converted.
+  - **Notices:** a converted document says where its earlier files are; strays and fields without a heading are named when the document opens or changes on disk.
+  - **Checked in the app:** the samples open with their layers; an old-format copy converted on open; typing wrote only the main file; headings added in two layer files outside showed as strays and were kept through a save.
+- **Done, one section's layers at a time, 2026-11-23:**
+  - **Rows** show their primary layer at the full width. A button by each section's name (with a count of its layers that have content) opens that section's other layers in a panel beside it (or under it, with the Under it layout), with a tab per layer, empty ones in italics. One section at a time; the tab chosen last is the view's `beside` and opens next time. The open section grows to its layer's height, up to the view's; past that the panel scrolls. Ctrl+Alt+N goes round a section's layers, opening them.
+  - **Taken out for now:** columns beside the text, layers under it, stacked columns, the Arrange view screen, the bar's tabs and width dragging. Views keep their `columns` (read and written as before) but the rows don't use them; a section's own page still shows every layer.
+  - **Opening:** folders and Markdown files named on the command line (or in `VERDANDI_OPEN`) join the workspace and the first document opens; a second start hands them to the running window. A workspace folder that is a document lists as that document.
+  - **Checked in the app** with two real documents (137 and 32 sections, eight layers): both listed as documents, opened from the sidebar, a section's draft and outline shown beside it; nothing written.
 - **Next:**
-  - **Layer files (Phase 9, §3c):** one file per layer, sections as headings. Planned 2026-11-23; `docs/FORMAT.md` describes the format.
+  - **Phase 9, what is left:**
+    - **Stray UI:** Attach to section… and Make it a section (strays are only named in a notice today), and orphaned fields in Fields….
+    - **Undo for a §3b conversion:** not offered. Putting the earlier files back would only convert again on the next open; they stay in `.verdandi/converted/`.
+    - **A main file outside its own folder** (with its layer files beside it) isn't recognised yet: documents are still folders named after their main file.
+    - **Export** writes headings as `#` whatever the section level. **The merge prompt** still works on the whole document, not per file.
   - **Linking between the apps is on hold** (the Urdr import, `verdandi://` links, publishing to Skuldr) while the app itself is made usable.
   - **The daily totals** still take every layer other than the text together; the Stats dialog has them per layer.
 - **What moves and what stays:** in the working text, a block's opening line keeps the callout's fold sign and title (`::: notes - Title`), so only hand-written quote marks (`>x`, leading spaces) are tidied when a section is saved. A file that is not changed is never rewritten.

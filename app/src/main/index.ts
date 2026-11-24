@@ -15,9 +15,9 @@ import { Dictionary } from './dictionary'
 import { exportMarkdown, plainLinks, writeExport } from './exporter'
 import { BackupStore, PathGuard, writeTextDocument } from './fileService'
 import {
-  addAttachments, convertFileToFolder, createFolderDocument, isFolderDocument, readDocument, renameFolderDocument, restoreFolderDocument,
-  changeLayers, readViews, saveViews, setSectionFields, trashFolderDocument, type TrashedFolder, undoConversion, writeFolderDocument,
-} from './folderDocument'
+  addAttachments, changeLayers, convertFileToFolder, createLayerDocument, isFolderDocument, readDocument, readViews, renameLayerDocument, restoreFolderDocument,
+  saveViews, setSectionFields, trashFolderDocument, type TrashedFolder, undoConversion, writeLayerDocument,
+} from './layerDocument'
 import { LexiconStore } from './lexicon'
 import { DEFAULT_PROMPTS, PromptStore, renderTemplate } from './prompts'
 import { SearchIndex } from './searchIndex'
@@ -31,6 +31,7 @@ import { buildWiktionary } from './wiktionaryBuilder'
 import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
 import { StyleHistory } from './styleHistory'
 import { WorkspaceWatcher } from './watcher'
+import { launchCandidates, planLaunch } from './launchPaths'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
   createFolder, readFolder, renameFile, renameFolder, restoreFile, trashFile, type TrashedFile, validateName,
@@ -227,7 +228,23 @@ function registerLocalFileProtocol(): void {
 }
 
 function workspaceState(): WorkspaceState {
-  return { roots: settings.get().workspaceRoots }
+  return { roots: settings.get().workspaceRoots, open: launchOpen }
+}
+
+/** The document named when Verdandi was started, until the window has asked for it. */
+let launchOpen: string | null = null
+/** Settles once the command line has been applied, so the window's first look at the workspace includes it. */
+let launchReady: Promise<void> = Promise.resolve()
+
+/** Adds the folders and files named on a command line to the workspace; returns the document to open. */
+async function applyLaunch(argv: readonly string[]): Promise<string | null> {
+  const skip = [process.execPath, app.getAppPath()]
+  const plan = await planLaunch(settings.get().workspaceRoots, launchCandidates(argv.slice(1), process.env.VERDANDI_OPEN, skip), isFolderDocument)
+  if (plan.roots.length !== settings.get().workspaceRoots.length) {
+    settings.update({ workspaceRoots: plan.roots })
+    rootsChanged()
+  }
+  return plan.open
 }
 
 function createWindow(): void {
@@ -284,7 +301,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sidecarStop, () => sidecar.stop())
   ipcMain.handle(IPC.sidecarInstallTorch, (_event, index: unknown) => sidecar.installTorch(text(index)))
 
-  ipcMain.handle(IPC.workspaceGet, () => workspaceState())
+  ipcMain.handle(IPC.workspaceGet, async () => {
+    await launchReady
+    const state = workspaceState()
+    launchOpen = null
+    return state
+  })
   ipcMain.handle(IPC.workspaceAddRoot, async (event) => {
     const options: OpenDialogOptions = {
       title: 'Add folder to workspace',
@@ -310,13 +332,13 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.filesRead, (_event, path: unknown, options?: { allowMissing?: boolean }) =>
-    readDocument(guard.resolve(path), options?.allowMissing === true))
+    readDocument(guard.resolve(path), options?.allowMissing === true, true))
   ipcMain.handle(IPC.filesWrite, async (_event, request: WriteRequest) => {
     const target = guard.resolve(request?.path)
     const previous = await readDocument(target, true).catch(() => null)
     const before = previous && previous.mtimeMs !== null ? previous.text : null
     const result = await isFolderDocument(target)
-      ? await writeFolderDocument(target, request, backups, (file) => shell.trashItem(file))
+      ? await writeLayerDocument(target, request, backups)
       : await writeTextDocument(target, request, backups)
     if (result.ok) {
       void snapshots.afterSave(target, request.text).catch(() => {})
@@ -357,7 +379,10 @@ function registerIpc(): void {
     }
     return target
   })
-  ipcMain.handle(IPC.foldersRead, (_event, folder: unknown) => readFolder(guard.resolve(folder)))
+  ipcMain.handle(IPC.foldersRead, async (_event, folder: unknown) => {
+    const target = guard.resolve(folder)
+    return { ...await readFolder(target), document: await isFolderDocument(target) }
+  })
   ipcMain.handle(IPC.foldersCreate, (_event, parent: unknown, name: unknown) =>
     createFolder(guard.resolve(parent), text(name)))
   ipcMain.handle(IPC.dictionaryStatus, () => (dictionary ? dictionaryStatus() : openDictionary()))
@@ -477,7 +502,7 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.filesRename, async (_event, file: unknown, name: unknown) => {
     const target = guard.resolve(file)
-    return (await isFolderDocument(target)) ? renameFolderDocument(target, text(name).trim()) : renameFile(target, text(name))
+    return (await isFolderDocument(target)) ? renameLayerDocument(target, text(name).trim()) : renameFile(target, text(name))
   })
   ipcMain.handle(IPC.filesTrash, async (_event, file: unknown) => {
     const target = guard.resolve(file)
@@ -500,7 +525,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.documentsCreate, async (_event, parent: unknown, name: unknown) => {
     const error = validateName(text(name))
     if (error) throw new Error(error)
-    return createFolderDocument(guard.resolve(parent), text(name).trim())
+    return createLayerDocument(guard.resolve(parent), text(name).trim())
   })
   ipcMain.handle(IPC.documentsConvert, async (_event, file: unknown) => {
     const converted = await convertFileToFolder(guard.resolve(file))
@@ -509,7 +534,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.documentsUndoConvert, (_event, folder: unknown) => undoConversion(guard.resolve(folder), (item) => shell.trashItem(item)))
   ipcMain.handle(IPC.documentsChangeLayers, (_event, folder: unknown, change: LayerChange) => {
     if (!change || typeof change !== 'object') throw new TypeError('change must be an object')
-    return changeLayers(guard.resolve(folder), change, backups)
+    return changeLayers(guard.resolve(folder), change, backups, (item) => shell.trashItem(item))
   })
   ipcMain.handle(IPC.documentsSetFields, (_event, folder: unknown, id: unknown, change: unknown, expected: unknown) => {
     if (typeof id !== 'string' || !id) throw new TypeError('id must be a section id')
@@ -567,8 +592,17 @@ sidecar.on('status', (status) => {
   mainWindow?.webContents.send(IPC.sidecarStatusChanged, status)
 })
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
   if (!mainWindow) return
+  // Started again with something to open: VERDANDI_OPEN belongs to the first start, so only the arguments count.
+  const window = mainWindow
+  void planLaunch(settings.get().workspaceRoots, launchCandidates(argv.slice(1), undefined, [process.execPath, app.getAppPath()]), isFolderDocument).then((plan) => {
+    if (plan.roots.length !== settings.get().workspaceRoots.length) {
+      settings.update({ workspaceRoots: plan.roots })
+      rootsChanged()
+    }
+    window.webContents.send(IPC.workspaceChanged, { roots: settings.get().workspaceRoots, open: plan.open })
+  })
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
 })
@@ -594,6 +628,9 @@ void app.whenReady().then(() => {
   registerLocalFileProtocol()
   registerIpc()
   void BackupStore.prune(backupsDir, BACKUP_RETENTION_DAYS)
+  launchReady = applyLaunch(process.argv).then((open) => {
+    launchOpen = open
+  }, () => {})
   void prompts.ensureDefaults()
   createWindow()
   watcher.setRoots(settings.get().workspaceRoots)

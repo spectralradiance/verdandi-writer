@@ -1,8 +1,8 @@
-// Everything that reads documents, for documents with several layers (PLAN.md §3b,
+// Everything that reads documents, for documents with several layers (PLAN.md §3c,
 // Phase 8 step 5): sections split per layer, exports, AI material, search, callouts
 // written in Obsidian, and section files renamed outside it.
 
-import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -11,7 +11,8 @@ import { layerMaterial, splitSections } from '../shared/document'
 import { fieldText, finishedText, parseFieldText, undeclaredCallouts } from '../shared/layers'
 import { exportMarkdown, plainLinks } from './exporter'
 import { BackupStore, PathGuard } from './fileService'
-import { addAttachments, convertFileToFolder, readFolderDocument, SECTIONS_FILE, setSectionFields, writeFolderDocument } from './folderDocument'
+import { sectionId } from '../shared/layerFiles'
+import { addAttachments, convertFileToFolder, readLayerDocument, setSectionFields } from './layerDocument'
 import { searchableText } from './searchIndex'
 
 const LAYERS = ['notes', 'outline']
@@ -123,63 +124,6 @@ describe('undeclaredCallouts', () => {
   })
 })
 
-describe('section files renamed outside Obsidian', () => {
-  const backups = async () => new BackupStore(await mkdtemp(path.join(tmpdir(), 'verdandi-backups-')), new PathGuard(() => [tmpdir()]))
-  const trash = (target: string) => rm(target, { force: true })
-  const ids = () => {
-    let count = 0
-    return () => `id${(count += 1)}`
-  }
-
-  async function converted() {
-    const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-stale-'))
-    const file = path.join(parent, 'Eras.md')
-    await writeFile(file, '# One\nFirst.\n\n# Two\nSecond.\n\n# Three\nThird.\n')
-    return (await convertFileToFolder(file, ids())).folder
-  }
-
-  it('remembers which file each section is in', async () => {
-    const folder = await converted()
-    const remembered = await readFile(path.join(folder, SECTIONS_FILE), 'utf8')
-    expect(remembered).toMatch(/^# /)
-    expect(remembered).toContain('id1: One')
-    expect(remembered).toContain('id3: Three')
-  })
-
-  it('finds a renamed file by the id remembered for its embed, in its place', async () => {
-    const folder = await converted()
-    await rename(path.join(folder, 'One.md'), path.join(folder, 'Uno.md'))
-    await rename(path.join(folder, 'Three.md'), path.join(folder, 'Tres.md'))
-    const document = await readFolderDocument(folder)
-    expect(splitSections(document.text, ['notes']).map((section) => section.title)).toEqual(['Uno', 'Two', 'Tres'])
-
-    // The next save puts the new names in the document note, and remembers them.
-    const result = await writeFolderDocument(folder, {
-      path: folder, text: `${document.text}\nMore.`, format: document.format, expectedMtimeMs: document.mtimeMs,
-    }, await backups(), trash)
-    expect(result.ok).toBe(true)
-    expect(await readFile(path.join(folder, 'Eras.md'), 'utf8')).toContain('![[Uno]]\n![[Two]]\n![[Tres]]')
-    expect(await readFile(path.join(folder, SECTIONS_FILE), 'utf8')).toContain('id1: Uno')
-  })
-
-  it('without a remembered id, matches one stale embed to the one file no embed lists', async () => {
-    const folder = await converted()
-    await rm(path.join(folder, SECTIONS_FILE))
-    await rename(path.join(folder, 'Two.md'), path.join(folder, 'Deux.md'))
-    const document = await readFolderDocument(folder)
-    expect(splitSections(document.text, ['notes']).map((section) => section.title)).toEqual(['One', 'Deux', 'Three'])
-  })
-
-  it('leaves out a stale embed it can’t match', async () => {
-    const folder = await converted()
-    await rm(path.join(folder, SECTIONS_FILE))
-    await rename(path.join(folder, 'One.md'), path.join(folder, 'Uno.md'))
-    await rename(path.join(folder, 'Two.md'), path.join(folder, 'Deux.md'))
-    const document = await readFolderDocument(folder)
-    expect(splitSections(document.text, ['notes']).map((section) => section.title)).toEqual(['Three'])
-  })
-})
-
 describe('addAttachments', () => {
   it('copies images into attachments under free names, skipping anything else', async () => {
     const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-images-'))
@@ -209,31 +153,27 @@ describe('section fields edited in the app', () => {
     expect(parseFieldText('')).toBeNull()
   })
 
-  it('changes a section file’s frontmatter, keeping its comments and Verdandi’s own keys', async () => {
+  it('changes a section’s fields in the main file, keeping its comments and the text', async () => {
     const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-fields-'))
-    const file = path.join(parent, 'Eras.md')
-    await writeFile(file, '# One\nFirst.\n\n# Two\nSecond.\n')
-    let count = 0
-    const { folder } = await convertFileToFolder(file, () => `id${(count += 1)}`)
-    const one = path.join(folder, 'One.md')
-    const source = await readFile(one, 'utf8')
-    await writeFile(one, source.replace('id: id1\n', 'id: id1\n# where the draft is\nstatus: idea\npov: Ana\n'))
+    const folder = path.join(parent, 'Eras')
+    await mkdir(folder)
+    const main = path.join(folder, 'Eras.md')
+    await writeFile(main, '---\nverdandi: document\n# where the draft is\nsections:\n  One: {status: idea, pov: Ana}\n---\n## One\n\nFirst.\n\n## Two\n\nSecond.\n')
     const backups = new BackupStore(await mkdtemp(path.join(tmpdir(), 'verdandi-backups-')), new PathGuard(() => [tmpdir()]))
-    const before = await readFolderDocument(folder)
-    expect(before.fields?.id1).toEqual({ status: 'idea', pov: 'Ana' })
+    const before = await readLayerDocument(folder)
+    const one = sectionId('One', 1)
+    expect(before.fields?.[one]).toEqual({ status: 'idea', pov: 'Ana' })
 
-    const result = await setSectionFields(folder, 'id1', { set: { status: 'draft', tags: ['act-1'] }, remove: ['pov'] }, before.mtimeMs, backups)
+    const result = await setSectionFields(folder, one, { set: { status: 'draft', tags: ['act-1'] }, remove: ['pov'] }, before.mtimeMs, backups)
     expect(result.fields).toEqual({ status: 'draft', tags: ['act-1'] })
-    const written = await readFile(one, 'utf8')
-    expect(written).toContain('id: id1\n# where the draft is\nstatus: draft\ntags:\n  - act-1\n---\n')
-    expect(written).toContain('First.')
-    const after = await readFolderDocument(folder)
+    expect(await readFile(main, 'utf8')).toBe('---\nverdandi: document\n# where the draft is\nsections:\n  One: {status: draft, tags: [act-1]}\n---\n## One\n\nFirst.\n\n## Two\n\nSecond.\n')
+    const after = await readLayerDocument(folder)
     expect(after.mtimeMs).toBe(result.mtimeMs)
     expect(after.text).toBe(before.text)
 
     // The token it was given is stale now; Verdandi's own keys are refused.
-    await expect(setSectionFields(folder, 'id1', { set: { status: 'done' }, remove: [] }, before.mtimeMs, backups)).rejects.toThrow(/changed on disk/)
-    await expect(setSectionFields(folder, 'id1', { set: { id: 'x' }, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/kept by Verdandi/)
-    await expect(setSectionFields(folder, 'nope', { set: {}, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/no file yet/)
+    await expect(setSectionFields(folder, one, { set: { status: 'done' }, remove: [] }, before.mtimeMs, backups)).rejects.toThrow(/changed on disk/)
+    await expect(setSectionFields(folder, one, { set: { heading: false }, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/kept by Verdandi/)
+    await expect(setSectionFields(folder, 'nope', { set: {}, remove: [] }, result.mtimeMs, backups)).rejects.toThrow(/isn’t in the files yet/)
   })
 })

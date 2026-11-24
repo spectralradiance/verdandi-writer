@@ -1,13 +1,13 @@
 import type { ChangeSet } from '@codemirror/state'
 import type { EditorView, KeyBinding } from '@codemirror/view'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Columns3, Ellipsis, GripVertical, PanelRightClose, PanelRightOpen, Rows3 } from 'lucide-react'
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Ellipsis, GripVertical, PanelRightClose, PanelRightOpen, Rows3, X } from 'lucide-react'
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type Ref, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { moveSectionText } from '../../../shared/document'
 import { suggestEdits } from '../../../shared/diff'
 import { type Layer, layerLabel } from '../../../shared/layers'
 import type { LayerNames } from '../../../shared/notes'
-import { type DocumentView, foldColumns, matchesFilter, showLayer, sideShowing, type ViewColumn } from '../../../shared/views'
+import { besideLayer, type DocumentView, matchesFilter } from '../../../shared/views'
 import { DropdownMenu, type MenuItem } from '../menu'
 import { GalleryCell } from './GalleryCell'
 import { MarkdownEditor, type MarkdownEditorHandle, type WordInContext } from './MarkdownEditor'
@@ -18,17 +18,13 @@ import {
 } from './sectionModel'
 
 /**
- * The document as rows, one per section. Each row starts with its primary layer
- * (left, or on top when narrow or stacked), and is as tall as that layer's text.
- * One other layer sits beside it (or below), in a panel that stays in view under
- * the bar while a long row scrolls past, and scrolls itself when it holds more
- * than fits. Any layer can be primary: the text, the
- * notes, an outline. Other layers can sit under it in the first column, and up to
- * two columns sit beside it, each showing its layers one at a time (tabs) or all
- * at once (stacked); the view arranges them (see shared/views.ts). A bar stays over
- * the rows as they scroll: on the left the section being read (a menu to jump to
- * another), then each column's tabs. Dragging between the bar's columns sets their
- * widths. A window too narrow for every column folds the later ones into tabs.
+ * The document as rows, one per section, each showing its primary layer: the text,
+ * the notes, an outline. A section's other layers open from the button by its
+ * name, for one section at a time: a panel beside it (or under it, when narrow or
+ * stacked) with a tab for each layer, which stays in view under the bar while a
+ * long row scrolls past and scrolls itself when it holds more than fits. The tab
+ * chosen last opens next time (the view's `beside`). A bar stays over the rows as
+ * they scroll, naming the section being read (a menu to jump to another).
  *
  * The view (see shared/views.ts) also decides which sections show: some can be
  * hidden or collapsed to their name, a filter on their fields leaves others out,
@@ -61,6 +57,8 @@ interface RowMeta {
   named: boolean
   /** A document folder's section whose name is a heading in exports. */
   heading: boolean
+  /** The layers with something in them, one per line (compared as a whole). */
+  filled: string
 }
 
 export interface SectionGridProps {
@@ -87,21 +85,16 @@ export interface SectionGridProps {
   onSelectWord?: (word: WordInContext) => void
   /** Rename, add or delete the document's layers (a document folder only). */
   onManageLayers?: () => void
-  /** Opens the screen that arranges the view's columns. */
-  onArrange?: () => void
   /** Opens a section's fields (a document folder's section, by its id) to edit them. */
   onEditFields?: (key: string, title: string) => void
 }
 
 const NEW_SECTION_NAME = 'New section'
-/** Narrower than this per column, the later columns fold into tabs. */
-const MIN_COLUMN_WIDTH = 340
-/** The narrowest a column can be dragged in the bar. */
-const MIN_DRAG_WIDTH = 160
 const cellKey = (id: number, kind: CellKind) => `${id}:${kind}`
 /** Per-section settings are remembered by key, so they survive reopening the file. */
 const titleKey = (title: string | null) => title ?? '\u0000before-first-heading'
-const metaOf = ({ id, key, title, named, heading }: Row): RowMeta => ({ id, key, title, named, heading })
+const filledKinds = (row: Row) => (Object.keys(row.cells) as CellKind[]).filter((kind) => row.cells[kind].text.trim()).join('\n')
+const metaOf = (row: Row): RowMeta => ({ id: row.id, key: row.key, title: row.title, named: row.named, heading: row.heading, filled: filledKinds(row) })
 
 /** What a layer is called on screen: the text, or the layer's name. */
 export function kindLabel(kind: CellKind): string {
@@ -129,7 +122,7 @@ function makeRow(
 
 export function SectionGrid({
   ref, path, initialText, title, layers, view, onViewChange, fields, live, focusMode, readOnly = false,
-  onDocChanged, onSave, onBlur, onFocus, onSelectWord, onManageLayers, onEditFields, onArrange,
+  onDocChanged, onSave, onBlur, onFocus, onSelectWord, onManageLayers, onEditFields,
 }: SectionGridProps) {
   // The layers are fixed for the grid's life: changing them reloads the document.
   const [model] = useState(() => {
@@ -165,34 +158,14 @@ export function SectionGrid({
   const pageMode = view.page !== null
   const grid = useRef<HTMLDivElement>(null)
   const bar = useRef<HTMLDivElement>(null)
-  /** The grid's width, for folding columns that wouldn't fit. */
-  const [gridWidth, setGridWidth] = useState(0)
-  /** The layer showing in a column made of folded ones (they each keep their own in the view). */
-  const [foldedActive, setFoldedActive] = useState<CellKind | null>(null)
-  const { sideKinds, under, placed, folded, columns, showing, secondaries } = useMemo(() => {
-    const others = kinds.filter((kind) => kind !== primary)
-    // A section's own page has every layer, one under another, in the first column.
-    const below = pageMode ? [] : view.under.filter((kind) => others.includes(kind))
-    const inColumns: ViewColumn[] = view.columns
-      .map((column) => ({ ...column, layers: column.layers.filter((kind) => others.includes(kind) && !below.includes(kind)) }))
-      .filter((column) => column.layers.length > 0)
-    const fits = gridWidth > 0 ? Math.max(1, Math.floor(gridWidth / MIN_COLUMN_WIDTH) - 1) : inColumns.length
-    const fold = !pageMode && view.layout === 'side' && inColumns.length > fits
-    const shown: ViewColumn[] = pageMode
-      ? (others.length ? [{ layers: others, mode: 'stack', active: null, width: 1 }] : [])
-      : fold
-        ? foldColumns(inColumns, fits).map((column, index, all) => (
-          index === all.length - 1 && foldedActive && column.layers.includes(foldedActive) ? { ...column, active: foldedActive } : column
-        ))
-        : inColumns
-    const on = shown.length > 0 && (pageMode || !view.sideHidden)
-    /** What each column shows in every row, by column. */
-    const each = on ? sideShowing(shown) : []
-    return { sideKinds: others, under: below, placed: inColumns, folded: fold, columns: shown, showing: each, secondaries: each.flat() }
-  }, [kinds, primary, pageMode, view.under, view.columns, view.layout, view.sideHidden, gridWidth, foldedActive])
-  const sideOn = showing.length > 0
-  const secondaryShown = secondaries.length > 0
-  const rowColumns = `minmax(0, ${view.primaryWidth}fr) ${columns.map((column) => `minmax(0, ${column.width}fr)`).join(' ')}`
+  /** The section (its row id) whose other layers are open beside it; one at a time. */
+  const [openId, setOpenId] = useState<number | null>(null)
+  const sideKinds = useMemo(() => kinds.filter((kind) => kind !== primary), [kinds, primary])
+  /** The layer showing beside the open section: the tab chosen last. */
+  const beside = besideLayer(view, sideKinds)
+  /** What shows beside a row: on its own page every other layer, one under another; else the open section's chosen layer. */
+  const sideOf = (id: number): CellKind[] => (pageMode ? sideKinds : id === openId && beside !== null ? [beside] : [])
+  const rowColumns = `minmax(0, ${view.primaryWidth}fr) minmax(0, ${view.columns[0]?.width ?? 1}fr)`
   /** The key of the section at the top of the scrolled rows, for the bar. */
   const [reading, setReading] = useState<string | null>(null)
 
@@ -232,12 +205,10 @@ export function SectionGrid({
     const row = rows.current[index]
     if (!row) return
     if (index === 0 && row.title === null) setMeta((current) => (current.preamble ? current : { ...current, preamble: true }))
+    if (kind !== primary) setOpenId(id)
     parent.current.onViewChange((current) => {
       let next = current
-      if (kind !== primary) {
-        next = showLayer(next, kind)
-        setFoldedActive(kind)
-      }
+      if (kind !== primary && current.page === null && current.beside !== kind) next = { ...next, beside: kind }
       if (next.collapsed.includes(row.key)) next = { ...next, collapsed: next.collapsed.filter((key) => key !== row.key) }
       if (next.page !== null && next.page !== row.key) next = { ...next, page: row.key }
       if (next.hidden.includes(row.key)) next = { ...next, hidden: next.hidden.filter((key) => key !== row.key) }
@@ -279,7 +250,7 @@ export function SectionGrid({
     rows.current = next
     const changed = next.length !== before.length
       || next.some((row, index) => row.id !== before[index].id || row.key !== before[index].key || row.title !== before[index].title
-        || row.named !== before[index].named || row.heading !== before[index].heading)
+        || row.named !== before[index].named || row.heading !== before[index].heading || filledKinds(row) !== filledKinds(before[index]))
     const preamble = showsPreamble(sections)
     setMeta((current) => (changed || current.preamble !== preamble ? { rows: next.map(metaOf), preamble } : current))
   }, [kinds, classify])
@@ -325,6 +296,10 @@ export function SectionGrid({
       if (fresh.text !== row.cells[otherKind].text) handles.current.get(cellKey(id, otherKind))?.sync(fresh.text)
       row.cells[otherKind] = fresh
     }
+    const filled = filledKinds(row)
+    setMeta((current) => (current.rows.some((item) => item.id === id && item.filled !== filled)
+      ? { ...current, rows: current.rows.map((item) => (item.id === id ? { ...item, filled } : item)) }
+      : current))
     if (kind === 'output' && row.title !== null && !row.named) {
       const heading = sectionTitle(row.text, classify)
       if (heading !== null && heading !== row.title) {
@@ -429,10 +404,9 @@ export function SectionGrid({
       const range = view.state.selection.main
       return range.empty && view.moveVertically(range, forward).head === range.head
     }
-    // Ctrl+Alt+N goes round the layers shown for the section.
+    // Ctrl+Alt+N goes round the section's layers, opening them beside it.
     // Galleries are skipped: they have no text to put the cursor in.
-    const cycle = [primary, ...under, ...(secondaries.length ? secondaries : sideKinds.filter((candidate) => !under.includes(candidate)).slice(0, 1))]
-      .filter((candidate) => candidate === kind || !gallery.includes(candidate))
+    const cycle = [primary, ...sideKinds].filter((candidate) => candidate === kind || !gallery.includes(candidate))
     const next = cycle[(cycle.indexOf(kind) + 1) % cycle.length] ?? primary
     return [
       { key: 'ArrowDown', run: (view) => atEdge(view, true) && moveBetweenRows(id, kind, 1) },
@@ -446,7 +420,7 @@ export function SectionGrid({
       },
       { key: 'Mod-Alt-s', run: () => splitAtCursor(id, kind) },
     ]
-  }, [moveBetweenRows, withCell, splitAtCursor, primary, under, secondaries, sideKinds, gallery])
+  }, [moveBetweenRows, withCell, splitAtCursor, primary, sideKinds, gallery])
 
   const activeHandle = () => {
     const current = active.current
@@ -468,7 +442,7 @@ export function SectionGrid({
   }
 
   /** The layers in the order to look for something in: what the view shows first. */
-  const searchOrder = (): CellKind[] => [primary, ...under, ...secondaries, ...sideKinds.filter((kind) => !under.includes(kind) && !secondaries.includes(kind))]
+  const searchOrder = (): CellKind[] => [primary, ...(beside ? [beside] : []), ...sideKinds.filter((kind) => kind !== beside)]
 
   /** Shows `next` (the whole file) as suggestions in the editors whose text it changes. */
   const proposeFile = (next: string, label: string, additive: boolean): number => {
@@ -659,7 +633,7 @@ export function SectionGrid({
       items.push({
         label: 'Fields…',
         disabled: !saved,
-        title: saved ? 'Status, tags and other fields, kept in the section file’s frontmatter' : 'The section has no file yet: it gets one when it saves, in a moment',
+        title: saved ? 'Status, tags and other fields, kept in the main file’s frontmatter' : 'The section isn’t saved yet: it can have fields once it saves, in a moment',
         onClick: () => onEditFields(rowMeta.key, rowMeta.title ?? ''),
       })
     }
@@ -704,7 +678,6 @@ export function SectionGrid({
       frame = 0
       element.style.setProperty('--bar-height', `${bar.current?.offsetHeight ?? 0}px`)
       element.style.setProperty('--view-height', `${element.clientHeight}px`)
-      setGridWidth(element.clientWidth)
       const line = (bar.current?.getBoundingClientRect().bottom ?? element.getBoundingClientRect().top) + 4
       let found: string | null = null
       for (const row of element.querySelectorAll<HTMLElement>(':scope > .section-row')) {
@@ -741,14 +714,9 @@ export function SectionGrid({
   const jumpItems: MenuItem[] = meta.rows.flatMap((rowMeta, index): MenuItem[] => (
     visible[index] ? [{ label: rowMeta.title ?? 'Before the first section', checked: rowMeta.key === reading, onClick: () => scrollToSection(rowMeta.key) }] : []
   ))
-  const chooseTab = (kind: CellKind) => {
-    setFoldedActive(kind)
-    changeView((current) => showLayer(current, kind))
-  }
-  /**
-   * Arrow keys, Home and End move between a column's tabs, choosing each as they go
-   * (one tab stop per column; Tab moves on to the next column).
-   */
+  /** Shows `kind` beside the open section, and remembers it for the next one opened. */
+  const chooseTab = (kind: CellKind) => changeView((current) => (current.beside === kind ? current : { ...current, beside: kind }))
+  /** Arrow keys, Home and End move between the panel's tabs, choosing each as they go (one tab stop). */
   const tabKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
     const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
@@ -761,48 +729,14 @@ export function SectionGrid({
     tabs[target].focus()
     tabs[target].click()
   }
-  const hideSide = () => changeView((current) => ({ ...current, sideHidden: true }))
-
-  /**
-   * Dragging the line between two of the bar's columns: they trade width, and the
-   * view keeps every column's share against the first one's.
-   */
-  const startWidthDrag = (index: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
-    const element = grid.current
-    const strip = bar.current
-    if (!element || !strip || event.button !== 0) return
-    event.preventDefault()
-    const handle = event.currentTarget
-    handle.setPointerCapture(event.pointerId)
-    const start = event.clientX
-    const widths = [...strip.children].filter((child) => child.classList.contains('section-bar-column')).map((child) => child.getBoundingClientRect().width)
-    let latest = widths
-    const template = (list: number[]) => list.map((width) => `minmax(0, ${(width / list[0]).toFixed(3)}fr)`).join(' ')
-    const move = (moveEvent: PointerEvent) => {
-      const shift = Math.max(MIN_DRAG_WIDTH - widths[index - 1], Math.min(widths[index] - MIN_DRAG_WIDTH, moveEvent.clientX - start))
-      latest = widths.map((width, at) => (at === index - 1 ? width + shift : at === index ? width - shift : width))
-      element.style.setProperty('--row-columns', template(latest))
-    }
-    const end = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', end)
-      handle.removeEventListener('pointercancel', end)
-      const shares = latest.map((width) => width / latest[0])
-      changeView((current) => (current.columns.length === shares.length - 1
-        ? { ...current, primaryWidth: 1, columns: current.columns.map((column, at) => ({ ...column, width: Math.round(shares[at + 1] * 100) / 100 })) }
-        : current))
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', end)
-    handle.addEventListener('pointercancel', end)
+  /** The layers with something in them for a row, for its button and tabs. */
+  const filledOf = (rowMeta: RowMeta) => {
+    const filled = rowMeta.filled.split('\n')
+    return sideKinds.filter((kind) => filled.includes(kind))
   }
-  /** Columns can be dragged wider in the bar when they sit side by side as the view has them. */
-  const draggable = !folded && view.layout === 'side' && gridWidth > 720 && columns.length > 0 && sideOn
-  /** With the side put away, the bar offers every layer that could show beside the text. */
-  const offered = placed.length ? placed.flatMap((column) => column.layers) : sideKinds.filter((kind) => !under.includes(kind))
-
   const classes = [
-    'section-grid', `primary-${primary === 'output' ? 'output' : 'layer'}`, secondaryShown ? '' : 'secondary-off',
+    // Only the open section is split; every other row has the full width.
+    'section-grid', `primary-${primary === 'output' ? 'output' : 'layer'}`, pageMode && sideKinds.length ? '' : 'secondary-off',
     view.layout === 'stacked' ? 'layout-stacked' : '', pageMode ? 'page-mode' : '',
     // A list layer first reads as one outline of the whole document, its sections dragged by their grips.
     layers?.find((layer) => layer.name === primary)?.kind === 'list' ? 'primary-list' : '',
@@ -824,65 +758,6 @@ export function SectionGrid({
               <span className="section-bar-title">{readingTitle}</span>
             )}
           </div>
-          {sideOn ? columns.map((column, index) => (
-            <div key={index} className="section-bar-column" style={{ '--column': index + 2 } as CSSProperties}>
-              {draggable && (
-                <div className="section-bar-divider" role="separator" aria-orientation="vertical" aria-label="Column width"
-                  title="Drag to change the columns’ widths" onPointerDown={startWidthDrag(index + 1)} />
-              )}
-              {column.mode === 'tabs' ? (
-                <div className="section-bar-tabs" role="tablist" aria-label={`Column ${index + 2}`} onKeyDown={tabKeys}>
-                  {column.layers.map((kind) => (
-                    <button key={kind} type="button" role="tab" className="section-tab" aria-selected={showing[index]?.includes(kind) ?? false}
-                      tabIndex={showing[index]?.includes(kind) ? 0 : -1}
-                      title={`Show each section’s ${kindLabel(kind).toLowerCase()} in this column`} onClick={() => chooseTab(kind)}>
-                      {kindLabel(kind)}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="section-bar-tabs section-bar-stack" title="These layers show one under another in this column">
-                  {column.layers.map((kind) => <span key={kind} className="section-tab">{kindLabel(kind)}</span>)}
-                </div>
-              )}
-              {index === columns.length - 1 && (
-                <div className="section-bar-actions">
-                  {onArrange && (
-                    <button type="button" className="icon-button" onClick={onArrange} aria-label="Arrange view" title="Arrange the columns: which layers, tabs or stacked, how wide">
-                      <Columns3 size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                  <button type="button" className="icon-button" onClick={hideSide} aria-label="Hide the side columns" title="Hide the side columns: the text takes the full width">
-                    <PanelRightClose size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )) : offered.length > 0 && (
-            <div className="section-bar-column" style={{ '--column': 2 } as CSSProperties}>
-              <div className="section-bar-tabs" role="tablist" aria-label="Show a layer beside each section" onKeyDown={tabKeys}>
-                {offered.map((kind) => (
-                  <button key={kind} type="button" role="tab" className="section-tab" aria-selected={false} tabIndex={kind === offered[0] ? 0 : -1}
-                    title={`Show each section’s ${kindLabel(kind).toLowerCase()} beside it`} onClick={() => chooseTab(kind)}>
-                    {kindLabel(kind)}
-                  </button>
-                ))}
-              </div>
-              <div className="section-bar-actions">
-                {onArrange && (
-                  <button type="button" className="icon-button" onClick={onArrange} aria-label="Arrange view" title="Arrange the columns: which layers, tabs or stacked, how wide">
-                    <Columns3 size={14} aria-hidden="true" />
-                  </button>
-                )}
-                {placed.length > 0 && (
-                  <button type="button" className="icon-button" onClick={() => changeView((current) => ({ ...current, sideHidden: false }))}
-                    aria-label="Show the side columns" title="Show the side columns as they were">
-                    <PanelRightOpen size={14} aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       )}
       {pageMode && pageIndex >= 0 ? (
@@ -915,8 +790,15 @@ export function SectionGrid({
             named={rowMeta.named}
             heading={rowMeta.heading}
             primary={primary}
-            under={under}
-            side={showing}
+            side={sideOf(rowMeta.id)}
+            layers={pageMode || sideKinds.length === 0 ? null : {
+              open: openId === rowMeta.id,
+              all: sideKinds,
+              filled: filledOf(rowMeta),
+              onToggle: () => setOpenId((current) => (current === rowMeta.id ? null : rowMeta.id)),
+              onChoose: chooseTab,
+              onKeys: tabKeys,
+            }}
             collapsed={collapsed}
             onCollapse={pageMode ? null : (value) => changeView((current) => ({ ...current, collapsed: toggleIn(current.collapsed, key, value) }))}
             renaming={renaming === rowMeta.id}
@@ -1051,8 +933,20 @@ function NameInput({ initial, onDone }: { initial: string; onDone: (name: string
 
 const SECTION_DRAG = 'application/x-verdandi-section'
 
+/** A row's other layers: the button that opens them beside it, and the panel's tabs. */
+interface RowLayers {
+  open: boolean
+  /** Every layer that isn't primary, in the document's order. */
+  all: readonly CellKind[]
+  /** Those with something in them for this section. */
+  filled: readonly CellKind[]
+  onToggle: () => void
+  onChoose: (kind: CellKind) => void
+  onKeys: (event: ReactKeyboardEvent<HTMLDivElement>) => void
+}
+
 function SectionRow({
-  id, sectionKey, title, named, heading, primary, under, side, collapsed, onCollapse, renaming, menu, reorder, onRename, initialText, cell,
+  id, sectionKey, title, named, heading, primary, side, layers, collapsed, onCollapse, renaming, menu, reorder, onRename, initialText, cell,
 }: {
   id: number
   /** The section's key in the view, for finding its row. */
@@ -1061,10 +955,10 @@ function SectionRow({
   named: boolean
   heading: boolean
   primary: CellKind
-  /** Layers shown under the primary one, each with its caption. */
-  under: readonly CellKind[]
-  /** What each column beside the first shows, by column; empty with the side hidden. */
-  side: readonly (readonly CellKind[])[]
+  /** The layers showing beside the primary one: one for the open section, every other on a section's own page, else none. */
+  side: readonly CellKind[]
+  /** The layers button and tabs; null on a section's own page, or with no other layers. */
+  layers: RowLayers | null
   /** Only the name shows. */
   collapsed: boolean
   onCollapse: ((collapsed: boolean) => void) | null
@@ -1079,6 +973,7 @@ function SectionRow({
 }) {
   const row = useRef<HTMLDivElement>(null)
   const primaryBody = useRef<HTMLDivElement>(null)
+  const sidePanel = useRef<HTMLDivElement>(null)
   const [, setMenuOpen] = useState(0)
   const [dropSide, setDropSide] = useState<'before' | 'after' | null>(null)
   const sectionName = title ?? 'Before the first section'
@@ -1092,6 +987,27 @@ function SectionRow({
     observer.observe(body.firstElementChild ?? body)
     return () => observer.disconnect()
   }, [collapsed])
+
+  // How tall the open layers' tabs and text are: the row grows to show them, up to the height of the view.
+  const sideList = side.join('\n')
+  useLayoutEffect(() => {
+    const panel = sidePanel.current
+    const element = row.current
+    if (!panel || !element) return
+    const measure = () => {
+      const tabs = panel.querySelector<HTMLElement>('.section-side-tabs')?.offsetHeight ?? 0
+      const bodies = [...panel.querySelectorAll<HTMLElement>(':scope > .cell-frame > .cell-body')]
+      const content = bodies.reduce((sum, body) => sum + (body.firstElementChild as HTMLElement | null ?? body).scrollHeight, 0)
+      element.style.setProperty('--side-fit', `${tabs + content}px`)
+    }
+    const observer = new ResizeObserver(measure)
+    for (const body of panel.querySelectorAll(':scope > .cell-frame > .cell-body')) observer.observe(body.firstElementChild ?? body)
+    measure()
+    return () => {
+      observer.disconnect()
+      element.style.removeProperty('--side-fit')
+    }
+  }, [sideList, collapsed])
 
   const menuButton = menu && (
     <DropdownMenu
@@ -1122,6 +1038,16 @@ function SectionRow({
     </span>
   )
 
+  const filledNames = layers?.filled.map((kind) => kindLabel(kind).toLowerCase()).join(', ')
+  const layersButton = layers && (
+    <button type="button" className={`icon-button section-layers-button${layers.open ? ' open' : ''}${layers.filled.length ? ' filled' : ''}`}
+      onClick={layers.onToggle} aria-pressed={layers.open} aria-label={layers.open ? `Close the other layers of ${sectionName}` : `Open the other layers of ${sectionName}`}
+      title={layers.open ? 'Close this section’s other layers' : `This section’s other layers, beside it${filledNames ? ` · has ${filledNames}` : ''} (Ctrl+Alt+N)`}>
+      {layers.open ? <PanelRightClose size={14} aria-hidden="true" /> : <PanelRightOpen size={14} aria-hidden="true" />}
+      {layers.filled.length > 0 && <span className="section-layers-count">{layers.filled.length}</span>}
+    </button>
+  )
+
   const collapseButton = onCollapse && (
     <button type="button" className="icon-button section-collapse" onClick={() => onCollapse(!collapsed)}
       aria-expanded={!collapsed} aria-label={collapsed ? `Expand ${sectionName}` : `Collapse ${sectionName}`}
@@ -1132,7 +1058,7 @@ function SectionRow({
 
   // A heading in the text already names the section there; otherwise the name gets a line of its own.
   const nameLine = renaming || collapsed || primary !== 'output' || named
-  const style = { '--layer-count': Math.max(1, ...side.map((kinds) => kinds.length)) } as CSSProperties
+  const style = { '--layer-count': Math.max(1, side.length) } as CSSProperties
   const sideShown = side.length > 0 && !collapsed
   const frame = (kind: CellKind, caption: boolean) => (
     <div className="cell-frame" key={kind}>
@@ -1151,7 +1077,7 @@ function SectionRow({
     <div
       ref={row}
       className={[
-        'section-row', sideShown ? '' : 'secondary-hidden', title === null ? 'section-preamble' : '',
+        'section-row', sideShown ? '' : 'secondary-hidden', sideShown && layers ? 'side-open' : '', title === null ? 'section-preamble' : '',
         nameLine ? 'has-name-line' : '', collapsed ? 'collapsed' : '', dropSide ? `drop-${dropSide}` : '',
       ].filter(Boolean).join(' ')}
       onDragOver={reorder ? (event) => {
@@ -1187,26 +1113,43 @@ function SectionRow({
           <span className="section-name-rule" aria-hidden="true" />
           {grip}
           {collapseButton}
+          {layersButton}
           {menuButton}
         </div>
       )}
       {!collapsed && (
         <div className="section-cell section-primary">
-          {!nameLine && <div className="section-menu-float">{grip}{collapseButton}{menuButton}</div>}
+          {!nameLine && <div className="section-menu-float">{grip}{collapseButton}{layersButton}{menuButton}</div>}
           <div className="cell-body" ref={primaryBody}>
             <Cell key={primary} id={id} kind={primary} initialText={() => initialText(primary)} props={cell(primary)} />
           </div>
-          {under.length > 0 && <div className="cell-under">{under.map((kind) => frame(kind, true))}</div>}
         </div>
       )}
-      {sideShown && side.map((kinds, index) => (
-        <div key={index} className="section-cell section-secondary" style={{ '--column': index + 2 } as CSSProperties}>
+      {sideShown && (
+        <div className="section-cell section-secondary">
           <div className="cell-stack">
-            {/* A column of one layer needs no caption: the bar's tab names it. */}
-            <div className="cell-sticky">{kinds.map((kind) => frame(kind, kinds.length > 1))}</div>
+            <div className="cell-sticky" ref={sidePanel}>
+              {layers && (
+                <div className="section-side-tabs" role="tablist" aria-label={`Layers of ${sectionName}`} onKeyDown={layers.onKeys}>
+                  {layers.all.map((kind) => (
+                    <button key={kind} type="button" role="tab" className={`section-tab${layers.filled.includes(kind) ? '' : ' empty'}`}
+                      aria-selected={side.includes(kind)} tabIndex={side.includes(kind) ? 0 : -1}
+                      title={layers.filled.includes(kind) ? `This section’s ${kindLabel(kind).toLowerCase()}` : `Nothing in the ${kindLabel(kind).toLowerCase()} for this section yet`}
+                      onClick={() => layers.onChoose(kind)}>
+                      {kindLabel(kind)}
+                    </button>
+                  ))}
+                  <button type="button" className="icon-button section-side-close" onClick={layers.onToggle} aria-label="Close the other layers" title="Close">
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {/* On a section's own page each layer has its caption; in the panel the tab names it. */}
+              {side.map((kind) => frame(kind, !layers))}
+            </div>
           </div>
         </div>
-      ))}
+      )}
     </div>
   )
 }

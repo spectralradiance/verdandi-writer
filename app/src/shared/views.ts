@@ -37,6 +37,8 @@ export interface DocumentView {
   columns: ViewColumn[]
   /** The columns beside the first are put away for now (the bar's button), and come back as they were. */
   sideHidden: boolean
+  /** The layer shown beside a section whose other layers are open: the tab chosen last. */
+  beside: ViewKind | null
   /** The first column's share of the width. */
   primaryWidth: number
   layout: ViewLayout
@@ -68,6 +70,7 @@ export function defaultView(layers: readonly string[]): DocumentView {
     under: [],
     columns: layers.length ? [{ layers: [...layers], mode: 'tabs', active: layers[0], width: 1 }] : [],
     sideHidden: false,
+    beside: layers[0] ?? null,
     primaryWidth: 1,
     layout: 'side',
     page: null,
@@ -118,11 +121,13 @@ export function normalizeView(value: unknown, layers: readonly string[]): Docume
       if (field.trim() && (typeof wanted === 'string' || typeof wanted === 'number' || typeof wanted === 'boolean')) filter[field.trim()] = String(wanted)
     }
   }
+  const besideOf = (kind: unknown) => (typeof kind === 'string' && kind !== primary && kinds.includes(kind) ? kind : null)
   return {
     primary,
     under,
     columns,
     sideHidden: sideHidden && columns.length > 0,
+    beside: besideOf(raw.beside) ?? besideOf(columns[0]?.active) ?? kinds.find((kind) => kind !== primary) ?? null,
     primaryWidth: clampWidth(raw.primaryWidth),
     layout: raw.layout === 'stacked' ? 'stacked' : 'side',
     page: typeof raw.page === 'string' && raw.page ? raw.page : null,
@@ -228,7 +233,13 @@ export function renameInView(view: DocumentView, from: ViewKind, to: ViewKind | 
     primary: map(view.primary),
     under: view.under.map(map),
     columns: view.columns.map((column) => ({ ...column, layers: column.layers.map(map), active: column.active === null ? null : map(column.active) })),
+    beside: view.beside === null ? null : map(view.beside),
   }
+}
+
+/** The layer to show beside a section, of `others` (the layers that aren't primary): the one chosen last. */
+export function besideLayer(view: DocumentView, others: readonly ViewKind[]): ViewKind | null {
+  return view.beside !== null && others.includes(view.beside) ? view.beside : others[0] ?? null
 }
 
 /** The layers each row shows beside the first column, by column: a tabs column's showing layer, or a stack's every layer. */
@@ -333,6 +344,7 @@ export function writeViews(views: readonly SavedView[]): string {
       return item
     })
     if (view.sideHidden) entry.sideHidden = true
+    if (view.beside && view.beside !== view.columns[0]?.active) entry.beside = view.beside
     if (view.primaryWidth !== 1) entry.primaryWidth = view.primaryWidth
     if (view.layout !== 'side') entry.layout = view.layout
     if (view.page) entry.page = view.page

@@ -4,7 +4,7 @@ import { type SectionSummary, summarizeSections } from '../../shared/document'
 import { layerNamesOf } from '../../shared/layers'
 import { folderName } from '../../shared/format'
 import type { FolderListing } from '../../shared/ipc'
-import { joinPath, samePath } from '../../shared/paths'
+import { dirname, joinPath, samePath } from '../../shared/paths'
 import { onDiskChange, touchesFile, touchesFolder } from './changes'
 import { FilesIcon, OutlineIcon, PaneIcon, SearchIcon } from './icons'
 import { ContextMenu } from './menu'
@@ -94,7 +94,13 @@ function useFileSections(path: string, enabled: boolean): SectionSummary[] {
   return sections
 }
 
-function FileRow({ folder, name, depth }: { folder: string; name: string; depth: number }) {
+function FileRow({ folder, name, depth, onRemoveRoot }: {
+  folder: string
+  name: string
+  depth: number
+  /** A workspace folder that is itself a document: removed from the workspace, never deleted from here. */
+  onRemoveRoot?: () => void
+}) {
   const tree = useTree()
   const [renaming, setRenaming] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -123,9 +129,11 @@ function FileRow({ folder, name, depth }: { folder: string; name: string; depth:
         { label: 'Rename', onClick: () => setRenaming(true) },
         { label: REVEAL_LABEL, onClick: () => tree.reveal(path) },
         'separator',
-        { label: 'Delete', onClick: () => void tree.deleteFile(path) },
+        onRemoveRoot
+          ? { label: 'Remove from workspace', onClick: onRemoveRoot, title: 'Its files are not touched' }
+          : { label: 'Delete', onClick: () => void tree.deleteFile(path) },
       ]}>
-        <div className="tree-row-wrap">
+        <div className={`tree-row-wrap${onRemoveRoot ? ' tree-root' : ''}`}>
           <button
             type="button"
             className={`tree-row tree-file${selected ? ' selected' : ''}`}
@@ -150,6 +158,11 @@ function FileRow({ folder, name, depth }: { folder: string; name: string; depth:
             </span>
             <span className="tree-label">{documentName(name)}</span>
           </button>
+          {onRemoveRoot && (
+            <span className="tree-actions">
+              <button type="button" className="icon-button" title="Remove from workspace (files are not touched)" onClick={onRemoveRoot}><X size={14} aria-hidden="true" /></button>
+            </span>
+          )}
         </div>
       </ContextMenu>
       {expanded && (
@@ -217,22 +230,24 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
     (reason: unknown) => setError(errorMessage(reason)),
   ), [path])
 
+  // A workspace folder is read at once, to know whether it is itself a document.
+  const watching = open || depth === 0
   useEffect(() => {
-    if (open) void load()
-  }, [open, load])
+    if (watching) void load()
+  }, [watching, load])
 
   useEffect(() => {
-    if (!open) return
+    if (!watching) return
     return onDiskChange((paths) => {
       if (touchesFolder(paths, path)) void load()
     })
-  }, [open, path, load])
+  }, [watching, path, load])
 
   const startEditing = (kind: Editing) => {
     setOpen(true)
     setEditing(kind)
   }
-  // A new document is a document folder: a document note and a file for each section.
+  // A new document is a document folder: its main file, and a file for each other layer once it has content.
   const createDocument = (name: string) => {
     setEditing(null)
     window.verdandi.documents.create(path, name.replace(/\.(md|markdown|txt)$/i, '')).then(
@@ -247,6 +262,10 @@ function FolderNode({ path, depth, initiallyOpen = false, onRemoveRoot }: {
 
   const empty = listing && listing.folders.length === 0 && listing.files.length === 0
   const title = folderName(path)
+  // A workspace folder that is a document lists as that document, not as the files that make it up.
+  if (depth === 0 && listing?.document) {
+    return <FileRow folder={dirname(path)} name={title} depth={0} onRemoveRoot={onRemoveRoot} />
+  }
 
   return (
     <li>

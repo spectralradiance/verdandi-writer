@@ -8,7 +8,7 @@ import { classifyBlocks, type LayerNames } from '../shared/notes'
 import { STOPWORDS } from '../shared/readability'
 import { extractSectionMarkers } from '../shared/text'
 import { isInside, isTextFileName } from './fileService'
-import { isFolderDocument, readDocument } from './folderDocument'
+import { isFolderDocument, readDocument } from './layerDocument'
 
 export { MATCH_END, MATCH_START }
 
