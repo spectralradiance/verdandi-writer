@@ -100,8 +100,13 @@ export class TableWidget extends WidgetType {
       row.append(cell)
     }
 
-    const head = table.createTHead().insertRow()
-    header.forEach((text, column) => addCell(head, 'th', text, column))
+    // A header row with nothing in it (`| | |`, a common way to lay out verse in columns) is left out.
+    if (header.some((text) => text.trim() !== '')) {
+      const head = table.createTHead().insertRow()
+      header.forEach((text, column) => addCell(head, 'th', text, column))
+    } else {
+      table.classList.add('cm-md-table-headless')
+    }
     const body = table.createTBody()
     for (const cells of rows) {
       const row = body.insertRow()
