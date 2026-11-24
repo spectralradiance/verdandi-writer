@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import { type EditorState, type Extension, Facet, type Range, StateField } from '@codemirror/state'
+import { type EditorState, type Extension, Facet, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import type { SyntaxNode } from '@lezer/common'
 
@@ -197,11 +197,25 @@ export function imageSource(raw: string, documentDirectory: string): string {
   return localFileUrl(resolvePath(documentDirectory, decoded))
 }
 
-/** A table is shown as a widget unless the selection is inside it (block widgets must span whole lines). */
+/** Whether the editor has the focus, kept in the state so the table field can see it. */
+const setFocused = StateEffect.define<boolean>()
+const focusedField = StateField.define<boolean>({
+  create: () => false,
+  update: (value, transaction) => transaction.effects.reduce((current, effect) => (effect.is(setFocused) ? effect.value : current), value),
+})
+const trackFocus = [focusedField, EditorView.focusChangeEffect.of((_state, focusing) => setFocused.of(focusing))]
+
+/**
+ * A table is shown as a widget unless the selection is inside it while the editor has
+ * the focus (block widgets must span whole lines). An editor nobody has clicked into
+ * keeps its cursor at the start, so a section that opens with a table would otherwise
+ * show its source. Without focus tracking (as in tests), the selection alone decides.
+ */
 export function tableCollapses(state: EditorState, node: { from: number; to: number }): boolean {
   const first = state.doc.lineAt(node.from)
   const last = state.doc.lineAt(node.to)
-  return first.from === node.from && last.to === node.to && !touches(state.selection.ranges, node.from, node.to)
+  const focused = state.field(focusedField, false) ?? true
+  return first.from === node.from && last.to === node.to && !(focused && touches(state.selection.ranges, node.from, node.to))
 }
 
 const LEAF_BLOCKS = new Set([
@@ -231,7 +245,8 @@ const tableField = StateField.define<DecorationSet>({
   create: buildTableDecorations,
   update(value, transaction) {
     const reparsed = syntaxTree(transaction.startState) !== syntaxTree(transaction.state)
-    return transaction.docChanged || transaction.selection || reparsed ? buildTableDecorations(transaction.state) : value
+    const focus = transaction.effects.some((effect) => effect.is(setFocused))
+    return transaction.docChanged || transaction.selection || reparsed || focus ? buildTableDecorations(transaction.state) : value
   },
   provide: (field) => EditorView.decorations.from(field),
 })
@@ -528,5 +543,5 @@ const linkClicks = EditorView.domEventHandlers({
 })
 
 export const livePreview: Extension = [
-  livePlugin, tableField, linkClicks, notesMarkersCollapse.of(true), EditorView.editorAttributes.of({ class: 'cm-live' }),
+  trackFocus, livePlugin, tableField, linkClicks, notesMarkersCollapse.of(true), EditorView.editorAttributes.of({ class: 'cm-live' }),
 ]
