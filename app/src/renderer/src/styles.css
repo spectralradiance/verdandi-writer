@@ -1757,7 +1757,129 @@ button.primary {
 /* Statistics */
 
 .stats-dialog {
-  width: min(880px, 100%);
+  width: min(1400px, 100%);
+  /* The whole stage, less the backdrop's padding, so the body scrolls inside it. */
+  height: calc(100vh - 48px);
+}
+
+.stats-compare-head,
+.terms-add,
+.terms-suggested {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stats-compare-order {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.terms-add input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.compare-added { color: var(--ok); }
+.compare-removed { color: var(--bad); }
+
+.compare-table tr.selected td { background: var(--raised); }
+
+.compare-bars {
+  display: flex;
+  justify-content: center;
+  height: 8px;
+}
+
+.compare-bar-removed,
+.compare-bar-added {
+  display: block;
+  height: 100%;
+}
+
+.compare-bar-removed {
+  margin-left: auto;
+  background: var(--bad);
+  border-radius: 2px 0 0 2px;
+}
+
+.compare-bar-added {
+  margin-right: auto;
+  background: var(--ok);
+  border-radius: 0 2px 2px 0;
+}
+
+.compare-detail {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.compare-sentence {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+.compare-sign {
+  flex: none;
+  width: 1em;
+  font-weight: 600;
+}
+
+.compare-sentence.compare-added {
+  color: inherit;
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+.compare-sentence.compare-removed {
+  color: inherit;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--bad) 70%, transparent);
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+
+.compare-sentence.compare-same { color: var(--muted); }
+
+.term-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.term-chip:hover { background: var(--raised); }
+
+.term-strip {
+  display: block;
+  width: 100%;
+  min-width: 160px;
+  height: 14px;
+}
+
+.terms-strip-head { width: 40%; }
+
+.term-cell { fill: var(--accent); }
+.term-cell.term-defined { fill: var(--ok); opacity: 1 !important; }
+
+.term-warning {
+  margin-left: 6px;
+  color: var(--warn);
+  vertical-align: -2px;
+}
+
+.term-inline-icon {
+  margin: 0 3px;
+  vertical-align: -2px;
 }
 
 .stats-summary {

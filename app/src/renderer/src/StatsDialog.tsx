@@ -5,6 +5,8 @@ import type { DailyWords, DocumentStats } from '../../shared/ipc'
 import { formatMinutes, layerOverview, layerTable } from '../../shared/layerStats'
 import { kindLabel } from './editor/SectionGrid'
 import { Modal } from './Modal'
+import { StatsCompare } from './StatsCompare'
+import { StatsTerms } from './StatsTerms'
 import { StylePanel } from './StylePanel'
 import { errorMessage } from './target'
 
@@ -23,7 +25,11 @@ interface StatsDialogProps {
   onClose: () => void
 }
 
-type Tab = 'overview' | 'style' | 'layers'
+type Tab = 'overview' | 'style' | 'compare' | 'terms' | 'layers'
+
+/** Words on a page: a double-spaced manuscript page, and a printed paperback page. */
+const MANUSCRIPT_PAGE = 250
+const PAPERBACK_PAGE = 300
 
 function DailyChart({ days }: { days: DailyWords[] }) {
   const values = days.map((day) => day.notes + day.output)
@@ -105,14 +111,20 @@ export function StatsDialog({ path, title, text, layerNames, focusLayer, onOpenS
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X size={14} aria-hidden="true" /></button>
       </header>
       <nav className="lexical-tabs" role="tablist">
-        {(['overview', 'style', 'layers'] as const).map((id) => (
+        {(['overview', 'style', 'compare', 'terms', 'layers'] as const).map((id) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
-            {{ overview: label, style: 'Vocabulary and grammar', layers: 'All layers' }[id]}
+            {{ overview: label, style: 'Vocabulary and grammar', compare: 'Compare', terms: 'Terms', layers: 'All layers' }[id]}
           </button>
         ))}
       </nav>
       <div className="settings-body">
         {tab === 'style' && <StylePanel key={layer} path={path} layer={layer} text={text} layerNames={layerNames} onOpenSection={onOpenSection} />}
+
+        {tab === 'compare' && (
+          <StatsCompare key={layer} text={text} layerNames={layerNames} layer={layer}
+            others={choices.filter((name) => name !== layer)} onOpenSection={onOpenSection} />
+        )}
+        {tab === 'terms' && <StatsTerms path={path} text={text} layerNames={layerNames} layer={layer} onOpenSection={onOpenSection} />}
 
         {tab === 'overview' && (
           <div className="settings-section">
@@ -124,6 +136,9 @@ export function StatsDialog({ path, title, text, layerNames, focusLayer, onOpenS
               <div><strong>{overview.filled}/{overview.sections}</strong><span>sections with {label.toLowerCase()}</span></div>
               <div><strong>{overview.filled ? Math.round(overview.words / overview.filled).toLocaleString() : '–'}</strong><span>words a section</span></div>
               <div><strong>{overview.paragraphs.toLocaleString()}</strong><span>paragraphs</span></div>
+              <div title={`At ${MANUSCRIPT_PAGE} words a page, a double-spaced manuscript; about ${Math.ceil(overview.words / PAPERBACK_PAGE).toLocaleString()} printed paperback pages at ${PAPERBACK_PAGE}`}>
+                <strong>{overview.words ? Math.ceil(overview.words / MANUSCRIPT_PAGE).toLocaleString() : '–'}</strong><span>pages (manuscript)</span>
+              </div>
             </div>
             {overview.longest && (
               <p className="lexical-hint">
