@@ -70,6 +70,24 @@ describe('reading a document folder', () => {
     expect(doc.strays).toEqual([])
   })
 
+  it('reads layers named with spaces, and layer files the main file does not declare', async () => {
+    const main = MAIN.replace('  - {name: outline, kind: list}\n', '  - {name: outline, kind: list}\n  - {name: draft 11-21, kind: prose, file: Eras - Draft 11-21.md}\n')
+    const folder = await document({ 'Eras.md': main, 'Eras - Draft 11-21.md': '## One\n\nAn old one.\n', 'Eras - Draft 10-18.md': '## Two\n\nOlder two.\n', 'Elsewhere.md': 'Not a layer.\n' })
+    const doc = await readLayerDocument(folder)
+    expect(doc.layers?.map((layer) => [layer.name, layer.label])).toEqual([
+      ['notes', undefined], ['outline', undefined], ['draft-11-21', 'draft 11-21'], ['draft-10-18', 'Draft 10-18'],
+    ])
+    const names = doc.layers!.map((layer) => layer.name)
+    const sections = splitSections(doc.text, names)
+    expect(sections[1].layers['draft-11-21']).toBe('An old one.')
+    expect(sections[2].layers['draft-10-18']).toBe('Older two.')
+    // Saving the text leaves the main file's layers as written.
+    await save(folder, (text) => text.replace('First.', 'First, edited.'))
+    expect(await read(folder, 'Eras.md')).toContain('{name: draft 11-21, kind: prose, file: Eras - Draft 11-21.md}')
+    expect(await read(folder, 'Eras.md')).not.toContain('10-18')
+    expect(await read(folder, 'Eras - Draft 10-18.md')).toBe('## Two\n\nOlder two.\n')
+  })
+
   it('reads a document whose layer files are missing', async () => {
     const parent = await mkdtemp(path.join(tmpdir(), 'verdandi-layers-'))
     const folder = path.join(parent, 'Eras')

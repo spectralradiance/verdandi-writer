@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import type { TextDocument, TextFormat, WriteRequest, WriteResult } from '../shared/ipc'
 import {
-  assembleWorkingText, type Assembled, bodyKey, DEFAULT_SECTION_LEVEL, hasDefaultFile, layerFileName, type LayerDeclaration, type MainFile, parseMainFile, sectionId,
+  assembleWorkingText, type Assembled, bodyKey, DEFAULT_SECTION_LEVEL, discoverLayers, hasDefaultFile, layerFileName, type LayerDeclaration, type MainFile, parseMainFile, sectionId,
   splitWorkingText, type StraySection, uniqueSectionNames, writeBody, writeMainYaml,
 } from '../shared/layerFiles'
 import {
@@ -80,6 +80,8 @@ export async function loadDocument(folder: string): Promise<LoadedDocument> {
   const parsed = parseMainFile(main.text)
   const base = path.basename(mainFile).replace(/\.md$/i, '')
   const listing = await readdir(folder)
+  // Layer files in the folder that the main file doesn't declare are layers too.
+  parsed.layers = [...parsed.layers, ...discoverLayers(base, listing, parsed.layers)]
   const layerFiles: LayerFile[] = []
   for (const layer of parsed.layers) {
     const file = await fileIn(folder, layerFileName(base, layer), listing)
@@ -109,7 +111,7 @@ function toTextDocument(loaded: LoadedDocument, converted?: string): TextDocumen
     mtimeMs: loaded.token,
     size: loaded.size,
     folder: true,
-    layers: loaded.parsed.layers.map(({ name, kind }) => ({ name, kind, anchored: false })),
+    layers: loaded.parsed.layers.map(({ name, kind, label }) => ({ name, kind, anchored: false, ...(label ? { label } : {}) })),
     modifiedMs: loaded.modifiedMs,
     fields: Object.fromEntries(assembled.sections.map((section) => [section.id, section.fields])),
     strays: assembled.strays.map(({ layer, name }) => ({ layer, name })),
@@ -218,7 +220,7 @@ export function planFiles(text: string, context: PlanContext): FilePlan {
     fields[names[index]] = own
   })
 
-  const yaml = writeMainYaml(context.mainYaml, { fields, layers: context.layers, level: context.level })
+  const yaml = writeMainYaml(context.mainYaml, { fields, layers: context.layers.filter((layer) => !layer.discovered), level: context.level })
   const sections = working.sections.map((section, index) => ({ name: names[index], lines: section.text }))
   let body = writeBody(context.level, working.preamble.text, sections)
   if (context.mainBody !== null && bodyKey(context.mainBody, context.level, true) === bodyKey(body, context.level, true)) body = context.mainBody

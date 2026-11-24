@@ -7,7 +7,7 @@
 
 import { isMap, isSeq } from 'yaml'
 
-import { editFields, type Layer, parseLayers, readFields, splitFrontmatter, stableId } from './layers'
+import { editFields, isLayerName, type Layer, layerNameOf, parseLayers, readFields, splitFrontmatter, stableId } from './layers'
 import { classifyBlocks } from './notes'
 import { extractSectionMarkers, sectionMarkerLine } from './text'
 
@@ -16,6 +16,8 @@ export const DEFAULT_SECTION_LEVEL = 2
 /** A declared layer, with the file it is in when that is not the default name. */
 export interface LayerDeclaration extends Layer {
   file?: string
+  /** Found in the folder rather than declared in the main file, which saving the text leaves alone. */
+  discovered?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +104,7 @@ function parseDeclarations(value: unknown): LayerDeclaration[] {
   for (const item of value) {
     if (!item || typeof item !== 'object') continue
     const entry = item as Record<string, unknown>
-    const layer = layers.find((candidate) => candidate.name === String(entry.name ?? '').trim().toLowerCase())
+    const layer = layers.find((candidate) => candidate.name === layerNameOf(String(entry.name ?? '')))
     if (layer && typeof entry.file === 'string' && entry.file.trim()) layer.file = entry.file.trim()
   }
   return layers
@@ -340,7 +342,29 @@ export function bodyKey(body: string, level: number, ordered: boolean): string {
 
 /** The YAML value for a layer, as written in the main file. */
 function declarationValue(layer: LayerDeclaration): Record<string, unknown> {
-  return layer.file ? { name: layer.name, kind: layer.kind, file: layer.file } : { name: layer.name, kind: layer.kind }
+  const name = layer.label ?? layer.name
+  return layer.file ? { name, kind: layer.kind, file: layer.file } : { name, kind: layer.kind }
+}
+
+/**
+ * Layers found in the folder rather than declared: each `<Document> - <Name>.md`
+ * that no declared layer reads is a prose layer called <Name>, in name order.
+ */
+export function discoverLayers(documentName: string, files: readonly string[], declared: readonly LayerDeclaration[]): LayerDeclaration[] {
+  const prefix = `${documentName} - `.toLowerCase()
+  const used = new Set(declared.map((layer) => layerFileName(documentName, layer).toLowerCase()))
+  const names = new Set(declared.map((layer) => layer.name))
+  const found: LayerDeclaration[] = []
+  for (const file of [...files].sort((a, b) => a.localeCompare(b))) {
+    const lower = file.toLowerCase()
+    if (!lower.startsWith(prefix) || !lower.endsWith('.md') || used.has(lower)) continue
+    const written = file.slice(prefix.length, -3).trim()
+    const name = layerNameOf(written)
+    if (!isLayerName(name) || names.has(name)) continue
+    names.add(name)
+    found.push({ name, kind: 'prose', anchored: false, file, discovered: true, ...(written.toLowerCase() === name ? {} : { label: written }) })
+  }
+  return found
 }
 
 const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
