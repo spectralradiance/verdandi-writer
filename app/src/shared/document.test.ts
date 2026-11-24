@@ -111,7 +111,7 @@ describe('splitSections', () => {
 
   it('summarizes without the text', () => {
     expect(summarizeSections(SAMPLE)[1]).toEqual({
-      title: 'Stars', named: false, heading: false, level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
+      title: 'Stars', id: null, named: false, heading: false, level: 1, line: 7, endLine: 15, hasText: true, outputWords: 6, notesWords: 5, headings: [],
     })
   })
 })
@@ -206,5 +206,10 @@ describe('section headings in a folder document', () => {
     const text = ['<!-- section: One {#a} -->', 'Text.', '', '### Stairs', '', 'More.', '', '#### Room', '', 'End.', '<!-- section: Two {#b} -->', 'Two.'].join('\n')
     const [one] = splitSections(text).filter((section) => section.title !== null)
     expect(one.headings.map((heading) => [heading.text, heading.level])).toEqual([['Stairs', 3], ['Room', 4]])
+  })
+
+  it('carries the section id from its marker, so its fields can be found', () => {
+    const text = ['<!-- section: One {#a} -->', 'Text.', '<!-- section: Two {#b .heading} -->', 'Two.'].join('\n')
+    expect(summarizeSections(text).filter((section) => section.title !== null).map((section) => [section.title, section.id])).toEqual([['One', 'a'], ['Two', 'b']])
   })
 })
