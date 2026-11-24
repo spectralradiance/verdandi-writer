@@ -560,6 +560,7 @@ Builds the format in §3b. Unlike the folder-of-sections format removed in Phase
   - **Opening:** folders and Markdown files named on the command line (or in `VERDANDI_OPEN`) join the workspace and the first document opens; a second start hands them to the running window. A workspace folder that is a document lists as that document.
   - **Checked in the app** with two real documents (137 and 32 sections, eight layers): both listed as documents, opened from the sidebar, a section's draft and outline shown beside it; nothing written.
 - **Done, the right column, 2026-11-23:** a section's layers open in a whole right column (the section's name, tabs, its layer), sticky under the bar, rather than in a panel inside the row. Closed, the document sits in the middle; opening slides it into the left column (grid columns animate, the panel fades and slides in, and the section is held where it was on screen while the column narrows). No lines between sections. The Beside/Under choice is gone; the Layers button opens Manage layers.
+- **Done, section headings, 2026-11-23:** a section's name is an h1–h6 (its `level` field, else its `#` heading, else 2), in the text's column, font and heading sizes. No rule beside it, no drag grip (sections move with Move up/down or in the sidebar), and its buttons show only while the pointer is over the section.
 - **Next:**
   - **Phase 9, what is left:**
     - **Stray UI:** Attach to section… and Make it a section (strays are only named in a notice today), and orphaned fields in Fields….

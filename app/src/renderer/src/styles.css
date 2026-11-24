@@ -2213,6 +2213,8 @@ body.resizing {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The closed right column's border is a pixel wider than nothing. */
+  overflow-x: hidden;
   padding: 8px 0 30vh;
   background: var(--bg);
 }
@@ -2299,24 +2301,12 @@ button.section-bar-title:hover {
   opacity: 0.7;
 }
 
-/* By a section's name: opens its other layers. Shows on hover, and always when it has any. */
+/* By a section's name: opens its other layers. */
 .section-layers-button {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms;
-}
-
-.section-layers-button.filled {
-  opacity: 0.75;
-}
-
-.section-row:hover .section-layers-button,
-.section-layers-button:focus-visible,
-.section-layers-button.open {
-  opacity: 1;
 }
 
 .section-layers-button.open,
@@ -2325,7 +2315,6 @@ button.section-bar-title:hover {
   background: none;
 }
 
-/* The open section grows to show its layers' text, up to the height of the view; past that the panel scrolls. */
 /* The document, and the right column a section's other layers open in. Closed, the
    right column has no width and the document sits in the middle; opening it slides
    the document left and the layers in from the right. */
@@ -2569,13 +2558,29 @@ button.section-bar-title:hover {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+/* Lined up with the text under it: the editor's text column, at its size and in its font. */
 .section-name-line {
   grid-column: 1;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
-  padding: 14px 10px 0 24px;
+  max-width: var(--cell-text-width, 860px);
+  margin: 0 auto;
+  padding: 14px 24px 0;
+  font-family: var(--font-source);
+  line-height: 1.3;
+}
+
+.section-grid-live {
+  --cell-text-width: 760px;
+}
+
+.section-grid-live .section-name-line {
+  font-family: var(--font-serif);
+  font-size: var(--text-size);
 }
 
 .section-secondary {
@@ -2586,36 +2591,56 @@ button.section-bar-title:hover {
   grid-row: 1 / -1;
 }
 
+/* Sized as the text's own headings are (editor/theme.ts). */
 .section-name {
+  flex: 0 1 auto;
   margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-serif);
-  font-size: 1.25em;
+  font-family: inherit;
+  font-size: 1em;
   font-weight: 650;
+  line-height: 1.3;
   color: var(--text);
 }
 
+h1.section-name { font-size: 2em; }
+h2.section-name { font-size: 1.55em; }
+h3.section-name { font-size: 1.3em; }
+h4.section-name { font-size: 1.12em; }
+h5.section-name, h6.section-name { font-size: 1em; color: var(--muted); }
+
+/* The section's buttons, at the end of its name line: shown while the pointer is over the section. */
+.section-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  align-self: center;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.section-row:hover .section-buttons,
+.section-buttons:focus-within,
+.section-buttons:has([data-state='open']) {
+  opacity: 1;
+}
+
 .section-name-line.named .section-name {
-  font-size: 1.05em;
   font-weight: 500;
   font-style: italic;
   color: var(--muted);
 }
 
 .section-preamble .section-name {
+  font-size: 1em;
   font-weight: 400;
   font-style: italic;
   color: var(--muted);
-}
-
-.section-name-rule {
-  flex: 1;
-  min-width: 12px;
-  height: 1px;
-  background: var(--border);
 }
 
 .section-name-input {
@@ -2643,28 +2668,9 @@ button.section-bar-title:hover {
   z-index: 1;
 }
 
-.section-menu-button {
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms;
-}
-
-.section-row:hover .section-menu-button,
-.section-menu-button:focus-visible,
-.section-menu-button[data-state='open'] {
-  opacity: 1;
-}
-
+.section-menu-button,
 .section-collapse {
   color: var(--muted);
-  opacity: 0;
-  transition: opacity 120ms;
-}
-
-.section-row:hover .section-collapse,
-.section-row.collapsed .section-collapse,
-.section-collapse:focus-visible {
-  opacity: 1;
 }
 
 /* Collapsed to its name: one line, the width of the page. */
@@ -2680,7 +2686,6 @@ button.section-bar-title:hover {
 }
 
 .section-row.collapsed .section-name {
-  font-size: 1.05em;
   color: var(--muted);
 }
 
@@ -2815,7 +2820,7 @@ button.section-bar-title:hover {
     grid-row: auto;
   }
 
-  .section-menu-button {
+  .section-buttons {
     opacity: 1;
   }
 
@@ -2948,13 +2953,6 @@ button.section-bar-title:hover {
 /* Images embedded the Obsidian way (![[map.png]]) inside any text. */
 .cm-md-image-wrap img.cm-md-image { max-width: 100%; }
 
-/* Dragging a section by its grip to move it. */
-.section-grip { display: inline-flex; align-items: center; padding: 0.15rem; color: var(--muted); cursor: grab; border-radius: 4px; opacity: 0.55; }
-.section-grip:hover { opacity: 1; background: var(--surface); }
-.section-row.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
-.section-row.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
-
 /* A list layer first: the document as one outline, each section's name over its items. */
 .section-grid.primary-list .section-name-line { padding-top: 8px; }
-.section-grid.primary-list .section-name { font-size: 1.05em; }
-.section-grid.primary-list .section-row { border-top-style: dashed; }
+
