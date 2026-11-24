@@ -28,7 +28,7 @@ interface ViewControlsProps {
 
 /**
  * The view controls in the document header: which layer each section shows, where
- * a section's other layers open (beside it or under it), and the saved views.
+ * the document's layers are managed, and the saved views.
  */
 export function ViewControls({ layers, view, onView, saved, activeName, onApply, onSaveAs, onUpdate, onDelete, onFilter, onManageLayers }: ViewControlsProps) {
   const kinds = ['output', ...layers.map((layer) => layer.name)]
@@ -37,12 +37,6 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
   // The layer that was first takes the chosen one's place, so switching back and forth keeps both in sight.
   const choosePrimary = (kind: string) => onView((current) => placeLayer(current, kind, { at: 'primary' }))
 
-  const layerItems: MenuItem[] = [
-    { heading: 'A section’s other layers open' },
-    { label: 'Beside it', checked: view.layout === 'side', onClick: () => onView((current) => ({ ...current, layout: 'side' })) },
-    { label: 'Under it', checked: view.layout === 'stacked', title: 'Under the section’s text, the full width', onClick: () => onView((current) => ({ ...current, layout: 'stacked' })) },
-  ]
-  if (onManageLayers) layerItems.push('separator', { label: 'Manage layers…', title: 'Add, rename or delete this document’s layers', onClick: onManageLayers })
 
   const filterEntries = Object.entries(view.filter)
   // The view chosen last, or else a saved view this one is the same as (after reopening the document).
@@ -84,9 +78,11 @@ export function ViewControls({ layers, view, onView, saved, activeName, onApply,
             aria-pressed={view.primary === kind} onClick={() => choosePrimary(kind)} />
         ))}
       </div>
-      <DropdownMenu items={layerItems} trigger={(
-        <button type="button" className="tool-button" aria-label="Layers" title="Where a section’s other layers open; manage the layers"><Layers size={16} strokeWidth={1.8} aria-hidden="true" /></button>
-      )} />
+      {onManageLayers && (
+        <button type="button" className="tool-button" aria-label="Manage layers" title="Add, rename or delete this document’s layers" onClick={onManageLayers}>
+          <Layers size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      )}
       <DropdownMenu items={viewItems} trigger={(
         <button type="button" className={`tool-button${filterEntries.length || view.hidden.length ? ' tool-button-flag' : ''}`} aria-label="Views"
           title={active ? `Views · ${active.name}` : 'Saved views and filters'}>
