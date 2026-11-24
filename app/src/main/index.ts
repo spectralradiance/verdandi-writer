@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol, safeStorage, shell, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, shell, type OpenDialogOptions } from 'electron'
 import { existsSync } from 'node:fs'
 import { rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
@@ -31,6 +31,7 @@ import { buildWiktionary } from './wiktionaryBuilder'
 import { LEGACY_PROFILE_NAME, migrateLegacyProfile } from './profileMigration'
 import { StyleHistory } from './styleHistory'
 import { WorkspaceWatcher } from './watcher'
+import { buildAppMenu } from './appMenu'
 import { launchCandidates, planLaunch } from './launchPaths'
 import { addRoot, removeRoot, samePath } from './workspaceRoots'
 import {
@@ -255,7 +256,6 @@ function createWindow(): void {
     minHeight: 480,
     title: 'Verdandi Writer',
     show: false,
-    autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1d1c' : '#f7f6f2',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -592,17 +592,36 @@ sidecar.on('status', (status) => {
   mainWindow?.webContents.send(IPC.sidecarStatusChanged, status)
 })
 
+/**
+ * Opens folders and files in the running window: folders join the workspace (a
+ * document folder also opens), and a file opens with its folder in the workspace.
+ */
+async function openPaths(paths: readonly string[]): Promise<void> {
+  const window = mainWindow
+  if (!window || paths.length === 0) return
+  const plan = await planLaunch(settings.get().workspaceRoots, paths, isFolderDocument)
+  if (plan.roots.length !== settings.get().workspaceRoots.length) {
+    settings.update({ workspaceRoots: plan.roots })
+    rootsChanged()
+  }
+  window.webContents.send(IPC.workspaceChanged, { roots: settings.get().workspaceRoots, open: plan.open })
+}
+
+/** The Open File… and Open Folder… dialogs of the menu bar. */
+async function chooseAndOpen(kind: 'file' | 'folder'): Promise<void> {
+  const window = mainWindow
+  if (!window) return
+  const options: OpenDialogOptions = kind === 'file'
+    ? { title: 'Open file', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }, { name: 'All files', extensions: ['*'] }] }
+    : { title: 'Open folder', properties: ['openDirectory', 'multiSelections'] }
+  const result = await dialog.showOpenDialog(window, options)
+  if (!result.canceled) await openPaths(result.filePaths)
+}
+
 app.on('second-instance', (_event, argv) => {
   if (!mainWindow) return
   // Started again with something to open: VERDANDI_OPEN belongs to the first start, so only the arguments count.
-  const window = mainWindow
-  void planLaunch(settings.get().workspaceRoots, launchCandidates(argv.slice(1), undefined, [process.execPath, app.getAppPath()]), isFolderDocument).then((plan) => {
-    if (plan.roots.length !== settings.get().workspaceRoots.length) {
-      settings.update({ workspaceRoots: plan.roots })
-      rootsChanged()
-    }
-    window.webContents.send(IPC.workspaceChanged, { roots: settings.get().workspaceRoots, open: plan.open })
-  })
+  void openPaths(launchCandidates(argv.slice(1), undefined, [process.execPath, app.getAppPath()]))
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
 })
@@ -627,6 +646,11 @@ void app.whenReady().then(() => {
   nativeTheme.themeSource = settings.get().preferences.appearance.theme
   registerLocalFileProtocol()
   registerIpc()
+  Menu.setApplicationMenu(buildAppMenu({
+    openFile: () => void chooseAndOpen('file'),
+    openFolder: () => void chooseAndOpen('folder'),
+    command: (command) => mainWindow?.webContents.send(IPC.menuCommand, command),
+  }))
   void BackupStore.prune(backupsDir, BACKUP_RETENTION_DAYS)
   launchReady = applyLaunch(process.argv).then((open) => {
     launchOpen = open

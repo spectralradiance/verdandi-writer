@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { layerMaterial, moveSectionText, type SectionSummary, splitSections } from '../../shared/document'
 import { folderName } from '../../shared/format'
-import type { SidecarStatus, WorkspaceState } from '../../shared/ipc'
+import type { MenuCommand, SidecarStatus, WorkspaceState } from '../../shared/ipc'
 import { finishedText, layerNamesOf } from '../../shared/layers'
 import { outlineMarkdown } from '../../shared/outline'
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences'
@@ -62,6 +62,12 @@ export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceState>({ roots: [] })
   /** Opens a document named at launch; the latest `open`, for the workspace subscriptions. */
   const openNamed = useRef<(path: string) => void>(() => {})
+  /** How many workspace folders there are, to tell when the menu added one. */
+  const rootCount = useRef(0)
+  /** Shows the sidebar's Files tab, once a folder has been opened. */
+  const showFiles = useRef<() => void>(() => {})
+  /** Carries out a menu bar command; the latest handlers, for the subscription. */
+  const menuCommand = useRef<(command: MenuCommand) => void>(() => {})
   const [target, setTarget] = useState<OpenTarget | null>(() => parseTarget(readPref('openTarget')))
   const [live, setLive] = useState(() => readPref('live') !== 'false')
   const [focusMode, setFocusMode] = useState(false)
@@ -117,9 +123,12 @@ export function App() {
       if (alive) setWorkspace(initial)
     })
     const unsubscribeWorkspace = window.verdandi.workspace.onChanged((next) => {
+      // A folder just opened shows in the sidebar.
+      if (next.roots.length > rootCount.current) showFiles.current()
       setWorkspace(next)
       if (next.open) openNamed.current(next.open)
     })
+    const unsubscribeMenu = window.verdandi.workspace.onMenuCommand((command) => menuCommand.current(command))
     const today = (days: { notes: number; output: number }[]) => {
       const last = days.at(-1)
       return last ? last.notes + last.output : 0
@@ -133,6 +142,7 @@ export function App() {
       unsubscribe()
       unsubscribeStats()
       unsubscribeWorkspace()
+      unsubscribeMenu()
     }
   }, [])
 
@@ -360,6 +370,29 @@ export function App() {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [toggleLive, toggleFocus, focusMode, lookUpCurrentWord, toggleDrawer, toggleLeft])
+
+  // The menu bar's commands do what their shortcuts do.
+  useLayoutEffect(() => {
+    rootCount.current = workspace.roots.length
+    showFiles.current = () => {
+      setFocusMode(false)
+      setSidebarTab('files')
+      if (!leftOpen) toggleLeft()
+    }
+    menuCommand.current = (command) => {
+      if (command === 'settings') setAppSettingsOpen(true)
+      else if (command === 'toggleSidebar') toggleLeft()
+      else if (command === 'search') {
+        setFocusMode(false)
+        if (!leftOpen) toggleLeft()
+        setSidebarTab('search')
+        setSearchFocus((count) => count + 1)
+      } else if (command === 'words') lookUpCurrentWord()
+      else if (command === 'ai') toggleDrawer('ai')
+      else if (command === 'toggleLive') toggleLive()
+      else if (command === 'focus') toggleFocus()
+    }
+  })
 
   useEffect(() => {
     // Hold the window open until pending edits are on disk.

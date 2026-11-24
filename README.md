@@ -93,7 +93,7 @@ Edits on either side go straight into the file: notes typed for a section withou
 
 ## Working in the sidebar
 
-The sidebar shows the workspace folders with their subfolders and documents; click a document to switch to it. A workspace folder that is itself a document shows as that document. Starting Verdandi with folders or Markdown files on its command line (or in `VERDANDI_OPEN`, separated by `;`) adds them to the workspace and opens the first document among them; starting it again while it runs does the same in the open window. To reorder, merge or rename sections, use each section's ⋯ menu in the editor.
+The sidebar shows the workspace folders with their subfolders and documents; click a document to switch to it. **File → Open File…** (Ctrl+O) opens Markdown files, adding their folder to the sidebar; **File → Open Folder…** (Ctrl+Shift+O) adds folders, opening one that is a document. The **View** menu lists the panels and modes with their shortcuts. A workspace folder that is itself a document shows as that document. Starting Verdandi with folders or Markdown files on its command line (or in `VERDANDI_OPEN`, separated by `;`) adds them to the workspace and opens the first document among them; starting it again while it runs does the same in the open window. To reorder, merge or rename sections, use each section's ⋯ menu in the editor.
 
 - **Rename** a document or folder by double-clicking it (or right-click → Rename). A renamed document stays open, and so do open files inside a renamed folder.
 - **Right-click** a document for Rename and Delete; right-click a folder for New document, New folder, Rename and (for top-level folders) Remove from workspace.
