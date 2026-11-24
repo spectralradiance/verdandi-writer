@@ -19,7 +19,16 @@ interface OutlineNode {
   children: OutlineNode[]
 }
 
-/** The sections and the headings inside them, nested by heading level. */
+/** A section's `level` field (1 to 6), if it has one. */
+function levelField(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(number) && number >= 1 && number <= 6 ? number : null
+}
+
+/**
+ * The sections and the headings inside them, nested by level: a section's `level`
+ * field (a folder document's), else its heading's level.
+ */
 function outlineTree(outline: Outline): OutlineNode[] {
   const roots: OutlineNode[] = []
   const stack: OutlineNode[] = []
@@ -30,11 +39,12 @@ function outlineTree(outline: Outline): OutlineNode[] {
   }
   for (const section of outline.sections) {
     if (section.title === null) continue
-    place({ key: `s${section.line}:${section.title}`, text: section.title, line: section.line, level: section.level, section: true, children: [] })
+    const level = levelField(section.id === null ? undefined : outline.fields[section.id]?.level) ?? section.level
+    place({ key: `s${section.line}:${section.title}`, text: section.title, line: section.line, level, section: true, children: [] })
     // The headings inside a section sit under it, nested from the shallowest of them.
     const shallowest = Math.min(...section.headings.map((heading) => heading.level))
     for (const heading of section.headings) {
-      place({ key: `h${heading.line}:${heading.text}`, text: heading.text, line: heading.line, level: section.level + 1 + heading.level - shallowest, section: false, children: [] })
+      place({ key: `h${heading.line}:${heading.text}`, text: heading.text, line: heading.line, level: level + 1 + heading.level - shallowest, section: false, children: [] })
     }
   }
   return roots

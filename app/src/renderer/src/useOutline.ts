@@ -11,11 +11,18 @@ export interface Outline {
   title: string
   path: string
   sections: SectionSummary[]
+  /** A folder document's sections' fields by id, as saved (its sections' `level` nests the outline). */
+  fields: Record<string, Record<string, unknown>>
 }
 
 async function loadOutline(path: string): Promise<Outline> {
   const document = await window.verdandi.files.read(path, { allowMissing: true }).catch(() => null)
-  return { title: folderName(path), path, sections: document && document.mtimeMs !== null ? summarizeSections(document.text, layerNamesOf(document)) : [] }
+  return {
+    title: folderName(path),
+    path,
+    sections: document && document.mtimeMs !== null ? summarizeSections(document.text, layerNamesOf(document)) : [],
+    fields: document?.fields ?? {},
+  }
 }
 
 /**
