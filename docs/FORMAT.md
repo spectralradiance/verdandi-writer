@@ -93,12 +93,14 @@ layers:
   - {name: images, kind: gallery}
 ```
 
-- **`name`**: what the layer is called. Lower-case words work best; Verdandi shows them capitalised ("Notes").
+- **`name`**: what the layer is called. Lower-case words work best; Verdandi shows them capitalised ("Notes") Spaces and other characters are fine (`draft 11-21`): the name shows as written, and inside the working text it becomes `draft-11-21`.
 - **`kind`**: how the layer is edited and shown.
   - `prose`: ordinary Markdown.
   - `list`: a Markdown list under each section, shown as an outline. Dragging sections in the outline view reorders the document.
   - `gallery`: images, shown as a grid.
 - **`file`** (optional): the layer's file name. The default is `<main file name> - <Layer>.md`, for example `Salt and Signal - Notes.md`. Names that include the document's name stay unique across a vault, so Obsidian links never point at the wrong file.
+
+**Undeclared layer files are read too.** A file in the folder named `<main file name> - <Name>.md` that no declared layer reads opens as a prose layer called `<Name>`. Saving the text doesn't add it to `layers`; changing the document's layers (in the Layers dialog) declares it.
 
 The text itself is not declared: it is always the main file's body.
 

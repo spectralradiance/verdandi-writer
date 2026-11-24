@@ -43,6 +43,7 @@ describe('layers', () => {
       { name: 'notes', kind: 'prose', anchored: true },
       { name: 'research', kind: 'prose', anchored: false },
       { name: 'images', kind: 'gallery', anchored: false },
+      { name: 'bad-name', kind: 'prose', anchored: false, label: 'bad name' },
       { name: 'beats', kind: 'prose', anchored: false },
     ])
     expect(parseLayers('notes')).toEqual([])

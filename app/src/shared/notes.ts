@@ -15,9 +15,19 @@ const LAYER_OPEN = /^[ \t]{0,3}:{3,}[ \t]*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?:[ \
 const CLOSE = /^[ \t]{0,3}:{3,}[ \t]*$/
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/
 
+/** Labels of layers whose names as written aren't layer names (`draft 11-21`), by layer name. */
+const labels = new Map<string, string>()
+
+/** Shows these layers by their names as written (the open document's, in the window). */
+export function setLayerLabels(layers: readonly { name: string; label?: string }[]): void {
+  for (const layer of layers) if (layer.label) labels.set(layer.name, layer.label)
+}
+
 /** A layer's name as a label: `story-beats` → `Story beats`; `output` is the section's text. */
 export function layerLabel(name: string): string {
   if (name === 'output') return 'Text'
+  const label = labels.get(name)
+  if (label) return label.charAt(0).toUpperCase() + label.slice(1)
   const words = name.replace(/-/g, ' ')
   return words.charAt(0).toUpperCase() + words.slice(1)
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  assembleWorkingText, bodyKey, layerFileName, parseMainFile, sectionId, splitAtHeadings, splitWorkingText, uniqueSectionNames, writeBody, writeMainYaml,
+  assembleWorkingText, bodyKey, discoverLayers, layerFileName, parseMainFile, sectionId, splitAtHeadings, splitWorkingText, uniqueSectionNames, writeBody, writeMainYaml,
 } from './layerFiles'
 import { splitFrontmatter } from './layers'
 
@@ -195,5 +195,13 @@ describe('uniqueSectionNames', () => {
     expect(uniqueSectionNames([
       { id: 'a', name: 'Interlude' }, { id: 'b', name: 'Interlude' }, { id: null, name: 'Storm' }, { id: 'c', name: 'Storm' }, { id: 'x', name: 'Interlude' },
     ], known)).toEqual(['Interlude', 'Interlude', 'Storm (2)', 'Storm', 'Interlude (2)'])
+  })
+})
+
+describe('discoverLayers', () => {
+  it('finds the layer files no declared layer reads', () => {
+    const declared = [{ name: 'notes', kind: 'prose' as const, anchored: false }]
+    expect(discoverLayers('Eras', ['Eras.md', 'Eras - Notes.md', 'Eras - Story beats.md', 'Eras - Old.txt', 'Other - X.md'], declared))
+      .toEqual([{ name: 'story-beats', kind: 'prose', anchored: false, file: 'Eras - Story beats.md', discovered: true, label: 'Story beats' }])
   })
 })

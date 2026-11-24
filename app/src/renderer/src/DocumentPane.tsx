@@ -4,7 +4,7 @@ import { folderName } from '../../shared/format'
 import type { TextDocument, TextFormat } from '../../shared/ipc'
 import { dirname } from '../../shared/paths'
 import { replaceSectionOutput, type SectionSummary, sectionAtLine, splitSections, splitWordCounts, summarizeSections } from '../../shared/document'
-import { type FieldChange, type Layer, type LayerChange, layerHasContent, layerLabel, looksLikeVerdandiDocument, NOTES_LAYER, undeclaredCallouts } from '../../shared/layers'
+import { type FieldChange, type Layer, type LayerChange, layerHasContent, layerLabel, looksLikeVerdandiDocument, NOTES_LAYER, setLayerLabels, undeclaredCallouts } from '../../shared/layers'
 import { type DocumentView, fieldValues, renameInView, type SavedView, showLayer } from '../../shared/views'
 import { loadView, storeView } from './documentView'
 import { readPref, writePref } from './prefs'
@@ -225,6 +225,7 @@ export function DocumentPane({
 
   const applyDocument = useCallback((document: TextDocument) => {
     disk.current = { mtimeMs: document.mtimeMs, format: document.format }
+    if (document.layers) setLayerLabels(document.layers)
     layerNames.current = document.layers ? document.layers.map((layer) => layer.name) : null
     galleryNames.current = (document.layers ?? []).filter((layer) => layer.kind === 'gallery').map((layer) => layer.name)
     setView(loadView(path, (document.layers ?? [NOTES_LAYER]).map((layer) => layer.name)))

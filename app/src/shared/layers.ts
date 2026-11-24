@@ -80,6 +80,8 @@ export type LayerKind = 'prose' | 'list' | 'gallery'
 export interface Layer {
   /** The callout type on disk, lowercase: letters, digits and hyphens. */
   name: string
+  /** The name as written in the main file when it isn't one of those (`draft 11-21`), shown in its place. */
+  label?: string
   kind: LayerKind
   /** The layer's blocks sit after the paragraph they belong to, rather than at the end of the section. */
   anchored: boolean
@@ -158,10 +160,18 @@ export function layerNamesOf(document: { layers?: readonly Layer[] } | null | un
   return document?.layers ? document.layers.map((layer) => layer.name) : null
 }
 
-export { layerLabel } from './notes'
+export { layerLabel, setLayerLabels } from './notes'
 
 export const LAYER_KINDS: readonly LayerKind[] = ['prose', 'list', 'gallery']
 const LAYER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * The layer name for a name as written (`Draft 11-21` → `draft-11-21`): lowercase,
+ * anything but letters and digits made a hyphen. Empty when nothing is left.
+ */
+export function layerNameOf(written: string): string {
+  return written.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
 
 /** Whether `name` can name a layer. `text` is the section's own text, so it is taken. */
 export function isLayerName(name: string): boolean {
@@ -254,10 +264,13 @@ export function parseLayers(value: unknown): Layer[] {
   const layers: Layer[] = []
   for (const item of value) {
     const entry: Record<string, unknown> = typeof item === 'string' ? { name: item } : item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
-    const name = typeof entry.name === 'string' ? entry.name.trim().toLowerCase() : ''
+    const written = typeof entry.name === 'string' ? entry.name.trim() : ''
+    const name = layerNameOf(written)
     if (!isLayerName(name) || layers.some((layer) => layer.name === name)) continue
     const kind = LAYER_KINDS.includes(entry.kind as LayerKind) ? (entry.kind as LayerKind) : 'prose'
-    layers.push({ name, kind, anchored: entry.anchored === true })
+    // A name that isn't a layer name as written keeps its own spelling on screen and on disk.
+    const label = written.toLowerCase() === name ? undefined : written
+    layers.push({ name, kind, anchored: entry.anchored === true, ...(label ? { label } : {}) })
   }
   return layers
 }
