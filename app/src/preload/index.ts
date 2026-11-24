@@ -93,7 +93,6 @@ const api: VerdandiApi = {
     list: () => ipcRenderer.invoke(IPC.lexiconList),
     save: (entry) => ipcRenderer.invoke(IPC.lexiconSave, entry),
     remove: (word) => ipcRenderer.invoke(IPC.lexiconRemove, word),
-    importAisling: () => ipcRenderer.invoke(IPC.lexiconImportAisling),
   },
   ai: {
     settings: () => ipcRenderer.invoke(IPC.aiSettings),

@@ -17,7 +17,8 @@ import { HistoryDialog } from './HistoryDialog'
 import { errorMessage } from './target'
 import { ViewControls } from './ViewControls'
 import { FieldsDialog, FilterDialog, LayersDialog, SaveViewDialog } from './ViewDialogs'
-import { History, X } from 'lucide-react'
+import { History, Volume2, X } from 'lucide-react'
+import { ReadAloud } from './ReadAloud'
 
 const AUTOSAVE_DELAY_MS = 1200
 const STATS_DELAY_MS = 400
@@ -174,6 +175,9 @@ export function DocumentPane({
   const [view, setView] = useState<DocumentView | null>(null)
   /** The find box, while it is open: what it started with, and a count of Ctrl+F presses to refocus it. */
   const [finding, setFinding] = useState<{ seed: string; key: number } | null>(null)
+  /** Reading the document aloud (the floating player is open). */
+  const [reading, setReading] = useState(false)
+  const speechEditor = useCallback(() => editor.current, [])
   const [savedViews, setSavedViews] = useState<SavedView[]>([])
   const [activeView, setActiveView] = useState<string | null>(null)
   const [dialog, setDialog] = useState<'save' | 'filter' | 'layers' | null>(null)
@@ -591,8 +595,16 @@ export function DocumentPane({
             onManageLayers={loaded.document.folder ? () => setDialog('layers') : undefined}
           />
         )}
+        {loaded && mode !== 'convert' && (
+          <button type="button" className="icon-button read-aloud-button" aria-pressed={reading}
+            onClick={() => setReading((current) => !current)}
+            title={reading ? 'Stop reading aloud' : 'Read aloud from the cursor (or the top of the screen)'} aria-label="Read aloud">
+            <Volume2 size={14} aria-hidden="true" />
+          </button>
+        )}
         {headerActions}
       </header>
+      {reading && <ReadAloud editor={speechEditor} onClose={() => setReading(false)} />}
       {dialog === 'save' && view && (
         <SaveViewDialog
           taken={savedViews.map((saved) => saved.name)}

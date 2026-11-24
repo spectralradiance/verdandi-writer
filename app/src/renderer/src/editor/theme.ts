@@ -48,6 +48,7 @@ const base = EditorView.theme({
   '.cm-searchMatch': { backgroundColor: 'var(--search-match)' },
   // The find box's matches (find.ts): every one, and the one selected.
   '.cm-find-match': { backgroundColor: 'var(--search-match)', borderRadius: '2px' },
+  '.cm-speech': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)', borderRadius: '2px' },
   '.cm-find-current': { backgroundColor: 'var(--search-match-selected)', outline: '1px solid var(--accent)' },
   '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--search-match-selected)' },
   '.cm-focus-dim': { opacity: '0.3', transition: 'opacity 120ms' },

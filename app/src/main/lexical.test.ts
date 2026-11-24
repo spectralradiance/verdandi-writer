@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -114,7 +114,7 @@ describe('lexicon files', () => {
     expect(lexiconFileName('what/ever?')).toBe('what_ever_.md')
   })
 
-  it('support Aisling-style prefixed search', () => {
+  it('support prefixed search', () => {
     expect(matchesLexiconQuery(entry, 'tag:emo')).toBe(true)
     expect(matchesLexiconQuery(entry, 'syn:gloom word:mel')).toBe(true)
     expect(matchesLexiconQuery(entry, 'def:joy')).toBe(false)
@@ -123,7 +123,7 @@ describe('lexicon files', () => {
 })
 
 describe('LexiconStore', () => {
-  it('saves, lists, replaces and imports Aisling vocabulary', async () => {
+  it('saves, lists and replaces words', async () => {
     const store = new LexiconStore(path.join(await mkdtemp(path.join(tmpdir(), 'verdandi-lexicon-')), 'lexicon'))
     expect(await store.list()).toEqual([])
     await store.save(entry)
@@ -132,21 +132,6 @@ describe('LexiconStore', () => {
     expect(listed).toHaveLength(1)
     expect(listed[0]).toMatchObject({ definition: 'Updated.', tags: ['mood'] })
 
-    const aisling = await mkdtemp(path.join(tmpdir(), 'verdandi-aisling-'))
-    await cp('C:\\Users\\snowb\\Programs\\text editors\\aisling\\Aisling\\Vocabulary', aisling, { recursive: true })
-      .catch(async () => {
-        await writeFile(path.join(aisling, 'Calm.json'), JSON.stringify({ word: 'Calm', definition: 'Still.', tags: 'emotion, peace', synonyms: 'peaceful, tranquil' }))
-      })
-    await writeFile(path.join(aisling, 'Melancholy.json'), JSON.stringify({ word: 'melancholy', definition: 'dup' }))
-    await writeFile(path.join(aisling, 'broken.json'), '{ not json')
-    const result = await store.importAisling(aisling)
-    const jsonFiles = (await readdir(aisling)).filter((name) => name.endsWith('.json')).length
-    expect(result.imported + result.skipped).toBe(jsonFiles)
-    expect(result.skipped).toBeGreaterThanOrEqual(2)
-
-    const calm = (await store.list()).find((item) => item.word === 'Calm')
-    expect(calm?.tags).toContain('emotion')
-    expect(calm?.synonyms).toContain('tranquil')
     expect(await readFile(path.join(store.location, 'melancholy.md'), 'utf8')).toContain('Updated.')
   })
 })

@@ -8,6 +8,7 @@ import { type Ref, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef,
 
 import { isSingleWord, matchCase, sentenceAround, wordAt } from '../../../shared/text'
 import { toggleWrap } from './commands'
+import { markSpeech, speechExtension } from './speechMark'
 import { findExtension, type FindQuery, type FindResult, findStep, replaceEvery, replaceStep, setFindQuery } from './find'
 import { dictionaryHover } from './dictionaryHover'
 import { documentTitle } from './documentTitle'
@@ -67,6 +68,12 @@ export interface MarkdownEditorHandle {
   replaceStep(query: FindQuery, replacement: string): FindResult
   /** Replaces every match; returns how many there were. */
   replaceEvery(query: FindQuery, replacement: string): number
+  /** Highlights the sentence being read aloud and keeps it in view, or clears it (null). */
+  markSpeech(range: { from: number; to: number } | null): void
+  /** The sections to read aloud (a section grid only): each one's text as shown, and where to start. */
+  speechRows?(): { rows: { id: number; text: string }[]; start: { id: number; offset: number } | null }
+  /** Highlights a sentence in a section (a section grid only), or clears it (null). */
+  markSpeechIn?(id: number | null, range: { from: number; to: number } | null): void
 }
 
 export interface WordInContext {
@@ -213,6 +220,9 @@ export function MarkdownEditor({
     findStep: (direction) => (view.current ? findStep(view.current, direction) : NO_MATCHES),
     replaceStep: (query, replacement) => (view.current ? replaceStep(view.current, query, replacement) : NO_MATCHES),
     replaceEvery: (query, replacement) => (view.current ? replaceEvery(view.current, query, replacement) : 0),
+    markSpeech: (range) => {
+      if (view.current) markSpeech(view.current, range)
+    },
     cursorLine: () => {
       const editor = view.current
       return editor ? editor.state.doc.lineAt(editor.state.selection.main.head).number : 1
@@ -243,6 +253,7 @@ export function MarkdownEditor({
         markdown({ base: markdownLanguage, codeLanguages: languages }),
         search({ top: true }),
         findExtension,
+        speechExtension,
         highlightSelectionMatches(),
         compartments.live.of([]),
         compartments.focus.of([]),

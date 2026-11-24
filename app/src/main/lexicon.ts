@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import type { LexiconEntry } from '../shared/ipc'
-import { lexiconFileName, parseLexiconFile, serializeLexiconEntry, splitList } from '../shared/lexicon'
+import { lexiconFileName, parseLexiconFile, serializeLexiconEntry } from '../shared/lexicon'
 
 /** The personal lexicon: a folder of Markdown files, one per word. */
 export class LexiconStore {
@@ -51,43 +51,5 @@ export class LexiconStore {
 
   async remove(word: string, trash: (file: string) => Promise<void>): Promise<void> {
     await trash(path.join(this.directory, lexiconFileName(word)))
-  }
-
-  /**
-   * Imports Aisling's Vocabulary/*.json files ({word, definition, tags, synonyms},
-   * lists as comma-separated text). Words already in the lexicon are left alone.
-   */
-  async importAisling(folder: string): Promise<{ imported: number; skipped: number }> {
-    const existing = new Set((await this.list()).map((entry) => entry.word.toLocaleLowerCase()))
-    let imported = 0
-    let skipped = 0
-    for (const name of (await readdir(folder)).filter((file) => file.toLowerCase().endsWith('.json'))) {
-      let raw: Record<string, unknown>
-      try {
-        raw = JSON.parse(await readFile(path.join(folder, name), 'utf8')) as Record<string, unknown>
-      } catch {
-        skipped += 1
-        continue
-      }
-      const word = typeof raw.word === 'string' ? raw.word.trim() : ''
-      if (!word || existing.has(word.toLocaleLowerCase())) {
-        skipped += 1
-        continue
-      }
-      const field = (key: string) => (typeof raw[key] === 'string' ? (raw[key] as string) : '')
-      await this.save({
-        word,
-        definition: field('definition'),
-        tags: splitList(field('tags')),
-        synonyms: splitList(field('synonyms')),
-        context: '',
-        source: path.join(folder, name),
-        added: '',
-        note: '',
-      })
-      existing.add(word.toLocaleLowerCase())
-      imported += 1
-    }
-    return { imported, skipped }
   }
 }
