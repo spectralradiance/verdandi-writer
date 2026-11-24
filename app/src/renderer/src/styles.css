@@ -944,12 +944,7 @@ button[aria-pressed='true'] {
 
 /* Hover definitions in the editor */
 
-.cm-tooltip.cm-tooltip-hover {
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
-}
+/* The tooltip box itself is styled in editor/theme.ts. */
 
 .cm-dictionary-tooltip {
   max-width: 360px;

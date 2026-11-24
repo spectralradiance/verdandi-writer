@@ -41,6 +41,9 @@ const base = EditorView.theme({
   '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, ::selection':
     { backgroundColor: 'var(--selection)' },
   '.cm-panels': { backgroundColor: 'var(--surface)', color: 'var(--text)' },
+  // Here rather than in styles.css: the app's styles sit in a cascade layer, which CodeMirror's own (light) tooltip outranks.
+  '.cm-tooltip': { backgroundColor: 'var(--raised)', color: 'var(--text)', border: '1px solid var(--border)' },
+  '.cm-tooltip.cm-tooltip-hover': { borderRadius: '5px', boxShadow: '0 6px 18px rgb(0 0 0 / 0.18)' },
   '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
   '.cm-searchMatch': { backgroundColor: 'var(--search-match)' },
   '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--search-match-selected)' },
