@@ -1110,10 +1110,24 @@ button[aria-pressed='true'] {
   border-right: 1px solid var(--border);
 }
 
-.lexicon-page-list .lexicon-list {
+.lexicon-page-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.lexicon-found-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.lexicon-found strong svg {
+  vertical-align: -1px;
+  color: var(--muted);
 }
 
 .lexicon-page-list .lexicon-list button[aria-current='true'] {

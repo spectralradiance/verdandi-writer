@@ -13,6 +13,8 @@ interface LexiconFormProps {
   /** The dictionary's entries for the word, for a first definition. */
   entries: DictionaryEntry[] | null
   saved: LexiconEntry | null
+  /** A new word's definition to start with (else the dictionary's first). */
+  definition?: string
   /** A new word typed in (the saved-words page), not one looked up. */
   editableWord?: boolean
   /** After saving or removing: what happened, and the word saved (null when removed or failed). */
@@ -30,9 +32,9 @@ function lookupGloss(word: string, setDefinition: (update: (current: string) => 
 export const firstGloss = (entries: DictionaryEntry[] | null) => entries?.flatMap((entry) => entry.senses.flatMap((sense) => sense.glosses))[0] ?? ''
 
 /** Saves a word to the lexicon, or updates or removes a saved one. */
-export function LexiconForm({ word: initialWord, context: initialContext, source, entries, saved, editableWord = false, onSaved }: LexiconFormProps) {
+export function LexiconForm({ word: initialWord, definition: initialDefinition = '', context: initialContext, source, entries, saved, editableWord = false, onSaved }: LexiconFormProps) {
   const [word, setWord] = useState(saved?.word ?? initialWord)
-  const [definition, setDefinition] = useState(saved?.definition ?? firstGloss(entries))
+  const [definition, setDefinition] = useState(saved?.definition ?? (initialDefinition || firstGloss(entries)))
   const [tags, setTags] = useState(saved?.tags.join(', ') ?? '')
   const [synonyms, setSynonyms] = useState(saved?.synonyms.join(', ') ?? '')
   const [context, setContext] = useState(saved?.context || initialContext)

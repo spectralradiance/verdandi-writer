@@ -1,7 +1,7 @@
-import { Plus, Search, X } from 'lucide-react'
+import { BookOpen, Check, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
-import type { DictionaryEntry, LexiconEntry } from '../../shared/ipc'
+import type { DictionaryEntry, DictionarySearchResult, LexiconEntry } from '../../shared/ipc'
 import { matchesLexiconQuery } from '../../shared/lexicon'
 import { LexiconForm } from './LexiconForm'
 import { Modal } from './Modal'
@@ -19,9 +19,15 @@ interface LexiconPageProps {
 type Order = 'alphabet' | 'newest' | 'oldest'
 
 /** What the right side shows: a saved word, or a new one being added (with what was typed). */
-type Selection = { kind: 'saved'; word: string } | { kind: 'new'; word: string; key: number } | null
+type Selection = { kind: 'saved'; word: string } | { kind: 'new'; word: string; definition: string; key: number } | null
 
 const same = (a: string, b: string) => a.toLocaleLowerCase() === b.toLocaleLowerCase()
+
+/** A search result's first sense (its senses are joined by `|`), or nothing if cut short (the dictionary's own is used then). */
+const firstSense = (gloss: string) => {
+  const sense = gloss.split(' | ')[0].trim()
+  return sense.includes('…') ? '' : sense
+}
 
 /**
  * The saved words on a page of their own: search them (with the `tag:`, `syn:`,
@@ -37,7 +43,13 @@ export function LexiconPage({ lexicon, initialWord, onChanged, onLookup, onClose
     return found ? { kind: 'saved', word: found.word } : lexicon[0] ? { kind: 'saved', word: lexicon[0].word } : null
   })
   const [message, setMessage] = useState<string | null>(null)
-  const [dictionary, setDictionary] = useState<DictionaryEntry[] | null>(null)
+  const [dictionary, setDictionary] = useState<{ word: string; entries: DictionaryEntry[] } | null>(null)
+  const [available, setAvailable] = useState(false)
+  const [found, setFound] = useState<{ query: string; results: DictionarySearchResult[] } | null>(null)
+
+  useEffect(() => {
+    void window.verdandi.dictionary.status().then((status) => setAvailable(status.available), () => {})
+  }, [])
 
   const tags = useMemo(() => {
     const counts = new Map<string, number>()
@@ -55,18 +67,37 @@ export function LexiconPage({ lexicon, initialWord, onChanged, onLookup, onClose
   const plainQuery = query.trim() && !query.includes(':') ? query.trim() : ''
   const exact = plainQuery ? lexicon.find((item) => same(item.word, plainQuery)) : undefined
 
-  // The dictionary's entry for the word shown, beside the saved one.
-  const lookupWord = entry?.word ?? null
+  // The dictionary's entry for the word shown (saved, or being added), beside it.
+  const lookupWord = entry?.word ?? (selected?.kind === 'new' && selected.word.trim() ? selected.word.trim() : null)
   useEffect(() => {
-    if (!lookupWord) return
+    if (!lookupWord || !available) return
     let active = true
-    window.verdandi.dictionary.lookup(lookupWord).then((found) => { if (active) setDictionary(found) }, () => { if (active) setDictionary(null) })
+    window.verdandi.dictionary.lookup(lookupWord).then(
+      (entries) => { if (active) setDictionary({ word: lookupWord, entries }) },
+      () => { if (active) setDictionary(null) },
+    )
     return () => {
       active = false
     }
-  }, [lookupWord])
+  }, [lookupWord, available])
+  const dictionaryEntries = dictionary && lookupWord && same(dictionary.word, lookupWord) ? dictionary.entries : []
 
-  const addNew = (word: string) => setSelected({ kind: 'new', word, key: Date.now() })
+  // Words in the dictionary that start with what is typed, to add to the saved words.
+  useEffect(() => {
+    if (!plainQuery || !available) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      window.verdandi.dictionary.search(plainQuery, 30).then((results) => { if (active) setFound({ query: plainQuery, results }) }, () => {})
+    }, 200)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [plainQuery, available])
+  const dictionaryResults = found && plainQuery && found.query === plainQuery ? found.results : []
+  const savedWords = useMemo(() => new Map(lexicon.map((item) => [item.word.toLocaleLowerCase(), item.word])), [lexicon])
+
+  const addNew = (word: string, definition = '') => setSelected({ kind: 'new', word, definition, key: Date.now() })
 
   return (
     <Modal label="Saved words" className="lexicon-page" onClose={onClose}>
@@ -78,7 +109,7 @@ export function LexiconPage({ lexicon, initialWord, onChanged, onLookup, onClose
         <aside className="lexicon-page-list">
           <div className="lexicon-page-search">
             <Search size={14} aria-hidden="true" />
-            <input value={query} autoFocus placeholder="Search · tag: syn: word: def:" aria-label="Search saved words"
+            <input value={query} autoFocus placeholder="Search saved words and the dictionary · tag: syn: word: def:" aria-label="Search saved words and the dictionary"
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
@@ -106,29 +137,52 @@ export function LexiconPage({ lexicon, initialWord, onChanged, onLookup, onClose
               ))}
             </div>
           )}
-          <ul className="lexicon-list">
-            {plainQuery && !exact && (
-              <li>
-                <button type="button" className="lexicon-add" onClick={() => addNew(plainQuery)}><Plus size={13} aria-hidden="true" /> Add “{plainQuery}”</button>
-              </li>
+          <div className="lexicon-page-scroll">
+            <ul className="lexicon-list">
+              {plainQuery && !exact && (
+                <li>
+                  <button type="button" className="lexicon-add" onClick={() => addNew(plainQuery)}><Plus size={13} aria-hidden="true" /> Add “{plainQuery}”</button>
+                </li>
+              )}
+              {shown.map((item) => (
+                <li key={item.word}>
+                  <button type="button" aria-current={selected?.kind === 'saved' && same(selected.word, item.word) ? 'true' : undefined}
+                    onClick={() => setSelected({ kind: 'saved', word: item.word })}>
+                    <strong>{item.word}</strong>
+                    {item.tags.length > 0 && <em>{item.tags.join(', ')}</em>}
+                    <span>{item.definition}</span>
+                  </button>
+                </li>
+              ))}
+              {lexicon.length === 0 && <li className="lexical-message">No saved words yet. Type one above to add it.</li>}
+            </ul>
+            {dictionaryResults.length > 0 && (
+              <>
+                <h3 className="lexical-section-title lexicon-found-title"><BookOpen size={13} aria-hidden="true" /> In the dictionary</h3>
+                <ul className="lexicon-list lexicon-found">
+                  {dictionaryResults.map((result, index) => {
+                    const saved = savedWords.get(result.word.toLocaleLowerCase())
+                    return (
+                      <li key={`${result.word}|${result.pos ?? ''}|${index}`}>
+                        <button type="button" title={saved ? 'Already saved: show it' : `Add “${result.word}” to your saved words`}
+                          aria-current={selected?.kind === 'new' && same(selected.word, result.word) ? 'true' : undefined}
+                          onClick={() => (saved ? setSelected({ kind: 'saved', word: saved }) : addNew(result.word, firstSense(result.gloss)))}>
+                          <strong>{result.word} {saved ? <Check size={12} aria-label="saved" /> : <Plus size={12} aria-label="add" />}</strong>
+                          {result.pos && <em>{result.pos}</em>}
+                          <span>{result.gloss}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
             )}
-            {shown.map((item) => (
-              <li key={item.word}>
-                <button type="button" aria-current={selected?.kind === 'saved' && same(selected.word, item.word) ? 'true' : undefined}
-                  onClick={() => setSelected({ kind: 'saved', word: item.word })}>
-                  <strong>{item.word}</strong>
-                  {item.tags.length > 0 && <em>{item.tags.join(', ')}</em>}
-                  <span>{item.definition}</span>
-                </button>
-              </li>
-            ))}
-            {lexicon.length === 0 && <li className="lexical-message">No saved words yet. Type one above to add it.</li>}
-          </ul>
+          </div>
         </aside>
         <section className="lexicon-page-entry">
           {message && <p className="lexical-message">{message}</p>}
           {selected?.kind === 'new' && (
-            <LexiconForm key={selected.key} word={selected.word} context="" source={null} entries={null} saved={null} editableWord
+            <LexiconForm key={selected.key} word={selected.word} definition={selected.definition} context="" source={null} entries={null} saved={null} editableWord
               onSaved={(text, word) => {
                 setMessage(text)
                 onChanged()
@@ -145,20 +199,20 @@ export function LexiconPage({ lexicon, initialWord, onChanged, onLookup, onClose
                 }} />
               <button type="button" className="link-button" onClick={() => onLookup(entry.word)}>Open in the Words panel</button>
               {entry.source && <p className="lexical-hint" title={entry.source}>From {entry.source}{entry.added ? ` · saved ${entry.added}` : ''}</p>}
-              {dictionary && dictionary.length > 0 && (
-                <div className="lexicon-page-dictionary">
-                  <h3 className="lexical-section-title">In the dictionary</h3>
-                  {dictionary.slice(0, 4).map((found) => (
-                    <section key={found.id} className="lexical-entry">
-                      <h3>{found.pos ?? 'unclassified'}</h3>
-                      <ol>
-                        {found.senses.filter((sense) => sense.glosses.length > 0).slice(0, 6).map((sense, index) => <li key={index}>{sense.glosses.join('; ')}</li>)}
-                      </ol>
-                    </section>
-                  ))}
-                </div>
-              )}
             </>
+          )}
+          {dictionaryEntries.length > 0 && (
+            <div className="lexicon-page-dictionary">
+              <h3 className="lexical-section-title">In the dictionary</h3>
+              {dictionaryEntries.slice(0, 4).map((item) => (
+                <section key={item.id} className="lexical-entry">
+                  <h3>{item.pos ?? 'unclassified'}</h3>
+                  <ol>
+                    {item.senses.filter((sense) => sense.glosses.length > 0).slice(0, 6).map((sense, index) => <li key={index}>{sense.glosses.join('; ')}</li>)}
+                  </ol>
+                </section>
+              ))}
+            </div>
           )}
           {!selected && <p className="lexical-message">Choose a word, or add a new one.</p>}
         </section>

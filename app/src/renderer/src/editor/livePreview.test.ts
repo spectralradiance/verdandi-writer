@@ -35,7 +35,7 @@ function render(doc: string, cursor?: number): Rendered {
     const spec = value.spec as { widget?: object; class?: string; attributes?: Record<string, string> }
     const text = doc.slice(from, to)
     if (spec.widget) result.widgets.push(`${spec.widget.constructor.name}:${text}`)
-    else if (from === to && spec.class) result.lines.push(`${state.doc.lineAt(from).number}:${spec.class}`)
+    else if (from === to) result.lines.push(`${state.doc.lineAt(from).number}:${spec.class ?? spec.attributes?.style}`)
     else if (spec.class) result.marks.push(`${spec.class}:${text}${spec.attributes?.['data-href'] ? `→${spec.attributes['data-href']}` : ''}`)
     else result.hidden.push(text)
   })
@@ -99,19 +99,41 @@ describe('links', () => {
 
 describe('lists and tasks', () => {
   it('render bullets unless the cursor is on the line', () => {
-    expect(render('- one\n- two', 9).widgets).toEqual(['BulletWidget:-'])
-    expect(render('- one\n- two', 9).marks).toEqual(['cm-md-listmark:-'])
+    // The line not being edited shows a bullet in the indent box; the one with the cursor, its source.
+    expect(render('- one\n- two', 9).widgets).toEqual(['ListPrefixWidget:- '])
+    expect(render('- one\n- two', 9).marks).toEqual(['cm-md-list-prefix:- ', 'cm-md-listmark:-'])
   })
 
   it('keep ordered list numbers', () => {
-    expect(render('1. one', undefined).marks).toEqual(['cm-md-listmark:1.'])
+    expect(render('1. one', undefined).widgets).toEqual(['ListPrefixWidget:1. '])
+    expect(render('1. one', 3).marks).toEqual(['cm-md-list-prefix:1. ', 'cm-md-listmark:1.'])
   })
 
   it('render task markers as checkboxes and strike done items', () => {
     const { hidden, widgets, marks } = render('- [x] done\n- [ ] todo')
-    expect(hidden).toEqual(['- ', '- '])
-    expect(widgets).toEqual(['CheckboxWidget:[x]', 'CheckboxWidget:[ ]'])
+    expect(hidden).toEqual([' ', ' '])
+    expect(widgets).toEqual(['ListPrefixWidget:- ', 'CheckboxWidget:[x]', 'ListPrefixWidget:- ', 'CheckboxWidget:[ ]'])
     expect(marks).toEqual(['cm-md-task-done:done'])
+    // On the line being edited, the source shows.
+    expect(render('- [x] done', 3).widgets).toEqual([])
+  })
+
+  it('hang wrapped and continued lines at the item text, nested items further in', () => {
+    const doc = '- one\n  more of one\n  - nested\n\n10. ten'
+    const { lines, hidden } = render(doc)
+    expect(lines).toEqual([
+      '1:padding-left: 1.30em; text-indent: -1.30em',
+      '2:padding-left: 1.30em',
+      '3:padding-left: 2.60em; text-indent: -2.60em',
+      '5:padding-left: 2.10em; text-indent: -2.10em',
+    ])
+    expect(hidden).toEqual(['  '])
+    // On the line, the source's spaces show.
+    expect(render(doc, 10).hidden).toEqual([])
+  })
+
+  it('leave lists inside quotes as they are', () => {
+    expect(render('> - quoted item').lines).toEqual(['1:cm-md-blockquote'])
   })
 })
 

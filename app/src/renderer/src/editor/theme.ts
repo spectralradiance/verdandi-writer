@@ -120,8 +120,9 @@ const live = EditorView.theme({
   '.cm-md-link': { color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' },
   '.cm-md-url, .cm-md-image-source, .cm-md-html': { color: 'var(--syntax-mark)', fontFamily: 'var(--font-mono)', fontSize: '0.88em' },
   '.cm-md-listmark': { color: 'var(--muted)' },
+  '.cm-md-list-prefix': { display: 'inline-block', textIndent: '0', whiteSpace: 'pre', verticalAlign: 'top' },
   '.cm-md-bullet': { display: 'inline-block', width: '1.1em', color: 'var(--muted)' },
-  '.cm-md-checkbox': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer', accentColor: 'var(--accent)' },
+  '.cm-md-checkbox': { fontSize: 'inherit', width: '1.05em', margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer', accentColor: 'var(--accent)' },
   '.cm-md-task-done': { color: 'var(--muted)', textDecoration: 'line-through' },
 
   '.cm-md-blockquote': {
