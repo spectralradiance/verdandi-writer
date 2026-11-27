@@ -791,6 +791,10 @@ export function SectionGrid({
     if (target) changeView((current) => ({ ...current, page: target.key }))
   }
   const left = meta.rows.length - shownCount - (meta.rows[0]?.title === null && !meta.preamble ? 1 : 0)
+  // Sections with a name line keep it at the top as they scroll, and it opens the list of
+  // sections; a section named by a heading in its text has none, so the bar does that instead.
+  const headingInText = (rowMeta: RowMeta) => rowMeta.title !== null && primary === 'output' && !rowMeta.named
+  const showBar = !pageMode && meta.rows.some((rowMeta, index) => visible[index] && headingInText(rowMeta))
 
   // Which section is at the top, under the bar, as the rows scroll (or change).
   useEffect(() => {
@@ -822,7 +826,7 @@ export function SectionGrid({
       observer.disconnect()
       cancelAnimationFrame(frame)
     }
-  }, [meta.rows, pageMode, view])
+  }, [meta.rows, pageMode, view, showBar])
 
   /** Scrolls a section's row up to just under the bar. */
   const scrollToSection = (key: string) => {
@@ -898,7 +902,7 @@ export function SectionGrid({
 
   return (
     <div className={classes} ref={grid}>
-      {!pageMode && (
+      {showBar && (
         <div className="section-bar" ref={bar}>
           <div className="section-bar-reading section-bar-column">
             {jumpItems.length > 0 ? (
@@ -957,6 +961,7 @@ export function SectionGrid({
               onToggle: () => showLayers(openId === rowMeta.id ? null : rowMeta.id),
             }}
             level={levelOf(rowMeta)}
+            jump={pageMode ? null : jumpItems}
             collapsed={collapsed}
             onCollapse={pageMode ? null : (value) => changeView((current) => ({ ...current, collapsed: toggleIn(current.collapsed, key, value) }))}
             renaming={renaming === rowMeta.id}
@@ -1118,7 +1123,7 @@ interface RowLayers {
 }
 
 function SectionRow({
-  id, sectionKey, title, named, heading, primary, side, layers, collapsed, onCollapse, renaming, menu, onRename, initialText, cell, level,
+  id, sectionKey, title, named, heading, primary, side, layers, collapsed, onCollapse, renaming, menu, onRename, initialText, cell, level, jump,
 }: {
   id: number
   /** The section's key in the view, for finding its row. */
@@ -1139,6 +1144,8 @@ function SectionRow({
   menu: (() => MenuItem[]) | null
   /** The section's heading level (1 to 6): its name shows as that heading, sized as the text's headings are. */
   level: number
+  /** The document's sections, to go to one from this section's name; null on a section's own page. */
+  jump: MenuItem[] | null
   onRename: (name: string | null) => void
   initialText: (kind: CellKind) => string
   cell: (kind: CellKind) => CellProps
@@ -1237,7 +1244,16 @@ function SectionRow({
             <NameInput initial={title} onDone={onRename} />
           ) : (
             <Heading className="section-name" title={named && !heading ? 'Section name (not a heading in the text)' : 'Section heading'}
-              onDoubleClick={collapsed && onCollapse ? () => onCollapse(false) : undefined}>{sectionName}</Heading>
+              onDoubleClick={collapsed && onCollapse ? () => onCollapse(false) : undefined}>
+              {jump && jump.length > 1 ? (
+                <DropdownMenu items={jump} trigger={(
+                  <button type="button" className="section-name-jump" title="Go to another section" aria-label={`${sectionName}. Go to another section`}>
+                    {sectionName}
+                    <ChevronDown className="section-name-chevron" size={14} aria-hidden="true" />
+                  </button>
+                )} />
+              ) : sectionName}
+            </Heading>
           )}
           <span className="section-buttons">
             {collapseButton}

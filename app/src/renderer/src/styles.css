@@ -3044,6 +3044,47 @@ button.section-bar-title:hover {
   --cell-text-width: 760px;
 }
 
+/* A section's name stays at the top while its section is on screen (the next one's pushes it off). */
+.section-main > .section-row > .section-name-line {
+  position: sticky;
+  /* Sticky offsets count from inside the grid's 8px top padding. */
+  top: -8px;
+  z-index: 6;
+  padding-bottom: 6px;
+  background: var(--bg);
+}
+
+.section-name-jump {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.section-name-chevron {
+  flex: none;
+  align-self: center;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.section-name-jump:hover .section-name-chevron,
+.section-name-jump:focus-visible .section-name-chevron,
+.section-name-jump[data-state='open'] .section-name-chevron {
+  opacity: 1;
+}
+
 .section-grid-live .section-name-line {
   font-family: var(--font-serif);
   font-size: var(--text-size);
