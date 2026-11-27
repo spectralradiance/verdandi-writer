@@ -69,6 +69,33 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** A list item's marker (a bullet or number, or nothing before a task box) in a box as wide as the item's indent. */
+class ListPrefixWidget extends WidgetType {
+  readonly text: string
+  readonly width: number
+  readonly slot: number
+
+  constructor(text: string, width: number, slot: number) {
+    super()
+    this.text = text
+    this.width = width
+    this.slot = slot
+  }
+
+  eq(other: ListPrefixWidget): boolean {
+    return other.text === this.text && other.width === this.width && other.slot === this.slot
+  }
+
+  toDOM(): HTMLElement {
+    const box = document.createElement('span')
+    box.className = this.text === '•' ? 'cm-md-list-prefix cm-md-bullet' : 'cm-md-list-prefix cm-md-listmark'
+    box.style.width = `${this.width.toFixed(2)}em`
+    box.style.paddingLeft = `${Math.max(0, this.width - this.slot).toFixed(2)}em`
+    box.textContent = this.text
+    return box
+  }
+}
+
 class RuleWidget extends WidgetType {
   eq(): boolean {
     return true
@@ -256,6 +283,13 @@ const tableField = StateField.define<DecorationSet>({
  * reveals (empty when the editor is not focused); `ranges` limits work to what
  * is visible.
  */
+/** The start of a list item's line from its marker: the marker, its spaces and any task box. */
+/** Room for a list marker, in em: a bullet, a number (by its digits), and a task's checkbox. */
+const BULLET_ROOM = 1.3
+const TASK_ROOM = 1.5
+const markerRoom = (marker: string) => 0.9 + 0.6 * marker.replace(/\D/g, '').length
+const LIST_PREFIX = /^(?:[-*+]|\d+[.)])(?:\s+(?:\[[ xX]\]\s+)?|$)/
+
 export function buildLiveDecorations(
   state: EditorState,
   active: readonly Span[],
@@ -372,6 +406,7 @@ export function buildLiveDecorations(
 
   const listMark = (node: SyntaxNode) => {
     const item = node.parent
+    if (prefixed.has(node.from)) return
     if (!item || touchesLines(state, active, node.from, node.to)) {
       mark(node.from, node.to, 'cm-md-listmark')
       return
@@ -383,6 +418,66 @@ export function buildLiveDecorations(
     } else {
       mark(node.from, node.to, 'cm-md-listmark')
     }
+  }
+
+  // Hanging indents: an item's marker sits in a box of fixed width, and the item's
+  // lines (wrapped, or continued in the source) start where its text does.
+  const listed = new Set<number>()
+  /** Markers drawn in a prefix widget, which their own decorations leave alone. */
+  const prefixed = new Set<number>()
+  const listItem = (item: SyntaxNode) => {
+    if (listed.has(item.from)) return
+    listed.add(item.from)
+    const first = doc.lineAt(item.from)
+    const width = listWidth(item)
+    if (width === null) return
+    const prefix = LIST_PREFIX.exec(doc.sliceString(item.from, first.to))
+    if (!prefix) return
+    const em = `${width.toFixed(2)}em`
+    const end = item.from + prefix[0].length
+    decorations.push(Decoration.line({ attributes: { style: `padding-left: ${em}; text-indent: -${em}` } }).range(first.from))
+    const marker = item.firstChild
+    const task = item.getChild('Task')?.getChild('TaskMarker') ?? null
+    if (touchesLines(state, active, first.from, first.to) || !marker) {
+      // Being edited: the source's own marker, in the box (plain text, so a single box).
+      mark(first.from, end, 'cm-md-list-prefix', { style: `width: ${em}` })
+    } else if (task) {
+      // The box less the checkbox's room, then the checkbox (its own widget), then the text.
+      prefixed.add(marker.from)
+      replace(first.from, task.from, new ListPrefixWidget('', width - TASK_ROOM, 0))
+      hide(task.to, end)
+    } else {
+      prefixed.add(marker.from)
+      const text = doc.sliceString(marker.from, marker.to)
+      const ordered = /\d/.test(text)
+      replace(first.from, end, new ListPrefixWidget(ordered ? text : '•', width, ordered ? markerRoom(text) : BULLET_ROOM))
+    }
+    // The item's other lines of prose, its own (not a nested list's or code).
+    for (let child = item.firstChild; child; child = child.nextSibling) {
+      if (child.name !== 'Paragraph') continue
+      for (let number = doc.lineAt(child.from).number; number <= doc.lineAt(child.to).number; number += 1) {
+        const line = doc.line(number)
+        if (line.number === first.number) continue
+        decorations.push(Decoration.line({ attributes: { style: `padding-left: ${em}` } }).range(line.from))
+        const leading = /^\s*/.exec(line.text)![0].length
+        if (leading && !touchesLines(state, active, line.from, line.to)) hide(line.from, line.from + leading)
+      }
+    }
+  }
+  /** An item's indent in em: its parents' plus room for its own marker, or null inside a quote. */
+  const listWidth = (item: SyntaxNode): number | null => {
+    let width = 0
+    for (let node: SyntaxNode | null = item; node; node = node.parent) {
+      if (node.name === 'Blockquote') return null
+      if (node.name !== 'ListItem') continue
+      const before = doc.sliceString(doc.lineAt(node.from).from, node.from)
+      if (node === item && before.trim()) return null
+      const marker = node.firstChild
+      const text = marker ? doc.sliceString(marker.from, marker.to) : '-'
+      width += /\d/.test(text) ? markerRoom(text) : BULLET_ROOM
+      if (node.getChild('Task')) width += TASK_ROOM
+    }
+    return width
   }
 
   const tree = syntaxTree(state)
@@ -436,12 +531,15 @@ export function buildLiveDecorations(
           case 'QuoteMark':
             if (!touchesLines(state, active, ref.from, ref.to)) hide(ref.from, withSpace(ref.to, doc.lineAt(ref.from).to))
             break
+          case 'ListItem':
+            listItem(node)
+            break
           case 'ListMark':
             listMark(node)
             break
           case 'TaskMarker': {
             const checked = /x/i.test(doc.sliceString(ref.from, ref.to))
-            if (!touches(active, ref.from, ref.to)) replace(ref.from, ref.to, new CheckboxWidget(checked))
+            if (!touchesLines(state, active, ref.from, ref.to)) replace(ref.from, ref.to, new CheckboxWidget(checked))
             if (checked && node.parent) mark(withSpace(ref.to, node.parent.to), node.parent.to, 'cm-md-task-done')
             break
           }

@@ -80,7 +80,7 @@ export class Dictionary {
       SELECT entries.word AS word, entries.pos AS pos, snippet(entries_fts, 2, '', '', ' … ', 14) AS gloss
       FROM entries_fts JOIN entries ON entries.id = entries_fts.rowid
       WHERE entries_fts MATCH ?
-      ORDER BY CASE WHEN entries.word LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, bm25(entries_fts), length(entries.word)
+      ORDER BY CASE WHEN entries.word LIKE ? ESCAPE '\\' THEN length(entries.word) ELSE 1000 END, bm25(entries_fts), length(entries.word)
       LIMIT ?
     `)
   }
